@@ -10,10 +10,10 @@ __pycache__/
 !.env.example
 
 # Site-local clinical data and generated run artifacts
-data/
-models/
-runs/
-artifacts/
+/data/
+/models/
+/runs/
+/artifacts/
 reports/generated/
 *.dcm
 *.h5
