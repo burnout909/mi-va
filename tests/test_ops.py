@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from mival.ops import Crop, OpChain, Pad, Resample
-from mival.signal import Signal
+from mival.ops import BandFilter, Crop, Normalize, OpChain, Pad, ReconstructLeads, Resample, ScaleUnit, SelectLeads
+from mival.signal import LEADS_12, Signal
 
 
 def make_signal(n_leads=2, n_samples=1000, fs=500.0, unit="mV"):
@@ -90,3 +90,108 @@ def test_opchain_applies_in_order_and_describes_itself():
         {"name": "resample", "params": {"target_hz": 250.0}},
         {"name": "crop", "params": {"n_samples": 300, "anchor": "start"}},
     ]
+
+
+def make_named(leads, n_samples=1000, fs=500.0, unit="mV"):
+    t = np.arange(n_samples, dtype=np.float32) / fs
+    rows = [np.sin(2 * np.pi * (1.0 + i) * t) for i in range(len(leads))]
+    return Signal(
+        data=np.stack(rows).astype(np.float32),
+        leads=tuple(leads),
+        sampling_rate_hz=fs,
+        unit=unit,
+    )
+
+
+def test_scale_unit_uv_to_mv_divides_by_1000():
+    sig = make_named(["I"], unit="uV")
+    out = ScaleUnit("uV", "mV").apply(sig)
+    assert out.unit == "mV"
+    np.testing.assert_allclose(out.data, sig.data / 1000.0, rtol=1e-6)
+
+
+def test_scale_unit_same_unit_is_identity():
+    sig = make_named(["I"], unit="mV")
+    out = ScaleUnit("mV", "mV").apply(sig)
+    np.testing.assert_array_equal(out.data, sig.data)
+
+
+def test_scale_unit_rejects_unknown_unit():
+    with pytest.raises(ValueError, match="unsupported unit"):
+        ScaleUnit("V", "mV").apply(make_named(["I"], unit="V"))
+
+
+def test_select_leads_reorders_and_subsets():
+    sig = make_named(LEADS_12)
+    order = ("I", "II", "V1", "V2", "V3", "V4", "V5", "V6")
+    out = SelectLeads(order).apply(sig)
+    assert out.leads == order
+    np.testing.assert_array_equal(out.data[2], sig.data[LEADS_12.index("V1")])
+
+
+def test_select_leads_rejects_missing_lead():
+    with pytest.raises(KeyError, match="V6"):
+        SelectLeads(("I", "V6")).apply(make_named(["I", "II"]))
+
+
+def test_reconstruct_derives_lead_iii_from_i_and_ii():
+    sig = make_named(["I", "II"])
+    out = ReconstructLeads(("I", "II", "III")).apply(sig)
+    assert out.leads == ("I", "II", "III")
+    np.testing.assert_allclose(out.data[2], sig.data[1] - sig.data[0], rtol=1e-6)
+
+
+def test_reconstruct_derives_avr():
+    sig = make_named(["I", "II"])
+    out = ReconstructLeads(("aVR",)).apply(sig)
+    np.testing.assert_allclose(
+        out.data[0], -0.5 * sig.data[0] - 0.5 * sig.data[1], rtol=1e-6
+    )
+
+
+def test_reconstruct_rejects_underivable_lead():
+    with pytest.raises(KeyError, match="V3"):
+        ReconstructLeads(("V3",)).apply(make_named(["I", "II"]))
+
+
+def test_normalize_global_zscore_uses_whole_array():
+    sig = make_named(["I", "II"])
+    out = Normalize("global_zscore").apply(sig)
+    assert out.data.mean() == pytest.approx(0.0, abs=1e-5)
+    assert out.data.std() == pytest.approx(1.0, abs=1e-5)
+
+
+def test_normalize_per_lead_zscore_normalizes_each_row():
+    sig = make_named(["I", "II"])
+    out = Normalize("per_lead_zscore").apply(sig)
+    for row in out.data:
+        assert row.mean() == pytest.approx(0.0, abs=1e-5)
+        assert row.std() == pytest.approx(1.0, abs=1e-5)
+
+
+def test_normalize_none_is_identity():
+    sig = make_named(["I"])
+    np.testing.assert_array_equal(Normalize("none").apply(sig).data, sig.data)
+
+
+def test_normalize_handles_constant_lead_without_nan():
+    sig = Signal(
+        data=np.ones((1, 100), dtype=np.float32),
+        leads=("I",),
+        sampling_rate_hz=500.0,
+        unit="mV",
+    )
+    out = Normalize("per_lead_zscore").apply(sig)
+    assert np.isfinite(out.data).all()
+
+
+def test_highpass_filter_removes_dc_offset():
+    sig = make_named(["I"], n_samples=5000)
+    offset = Signal(
+        data=sig.data + 5.0,
+        leads=sig.leads,
+        sampling_rate_hz=sig.sampling_rate_hz,
+        unit=sig.unit,
+    )
+    out = BandFilter("highpass", 0.5).apply(offset)
+    assert abs(float(out.data.mean())) < 0.05

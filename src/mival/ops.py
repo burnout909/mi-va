@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy import signal as sps
 
-from mival.signal import Signal
+from mival.signal import DERIVABLE_LEADS, Signal
 
 
 # resample_poly builds a filter proportional to max(up, down); an exact but
@@ -133,6 +133,151 @@ class Pad(Op):
         padded = np.pad(sig.data, ((0, 0), (before, after)), mode="constant")
         return Signal(
             data=np.ascontiguousarray(padded, dtype=np.float32),
+            leads=sig.leads,
+            sampling_rate_hz=sig.sampling_rate_hz,
+            unit=sig.unit,
+        )
+
+
+_UNIT_TO_MV = {"mV": 1.0, "uV": 1e-3, "µV": 1e-3}
+
+
+@dataclass(frozen=True)
+class ScaleUnit(Op):
+    source_unit: str
+    target_unit: str
+    name: str = field(default="scale_unit", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"source_unit": self.source_unit, "target_unit": self.target_unit}
+
+    def apply(self, sig: Signal) -> Signal:
+        for unit in (self.source_unit, self.target_unit):
+            if unit not in _UNIT_TO_MV:
+                raise ValueError(f"unsupported unit: {unit}")
+        factor = _UNIT_TO_MV[self.source_unit] / _UNIT_TO_MV[self.target_unit]
+        data = sig.data if factor == 1.0 else sig.data * np.float32(factor)
+        return Signal(
+            data=np.ascontiguousarray(data, dtype=np.float32),
+            leads=sig.leads,
+            sampling_rate_hz=sig.sampling_rate_hz,
+            unit=self.target_unit,
+        )
+
+
+@dataclass(frozen=True)
+class SelectLeads(Op):
+    order: Tuple[str, ...]
+    name: str = field(default="select_leads", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"order": list(self.order)}
+
+    def apply(self, sig: Signal) -> Signal:
+        index = {lead: i for i, lead in enumerate(sig.leads)}
+        missing = [lead for lead in self.order if lead not in index]
+        if missing:
+            raise KeyError(f"leads not present in source: {', '.join(missing)}")
+        rows = [sig.data[index[lead]] for lead in self.order]
+        return Signal(
+            data=np.ascontiguousarray(np.stack(rows), dtype=np.float32),
+            leads=self.order,
+            sampling_rate_hz=sig.sampling_rate_hz,
+            unit=sig.unit,
+        )
+
+
+@dataclass(frozen=True)
+class ReconstructLeads(Op):
+    order: Tuple[str, ...]
+    name: str = field(default="reconstruct_leads", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"order": list(self.order)}
+
+    def apply(self, sig: Signal) -> Signal:
+        index = {lead: i for i, lead in enumerate(sig.leads)}
+        rows = []
+        for lead in self.order:
+            if lead in index:
+                rows.append(sig.data[index[lead]])
+                continue
+            recipe = DERIVABLE_LEADS.get(lead)
+            if recipe is None or any(src not in index for src in recipe):
+                raise KeyError(f"lead cannot be derived from source: {lead}")
+            acc = np.zeros(sig.n_samples, dtype=np.float32)
+            for src, coeff in recipe.items():
+                acc = acc + np.float32(coeff) * sig.data[index[src]]
+            rows.append(acc)
+        return Signal(
+            data=np.ascontiguousarray(np.stack(rows), dtype=np.float32),
+            leads=self.order,
+            sampling_rate_hz=sig.sampling_rate_hz,
+            unit=sig.unit,
+        )
+
+
+@dataclass(frozen=True)
+class Normalize(Op):
+    method: str
+    name: str = field(default="normalize", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"method": self.method}
+
+    def apply(self, sig: Signal) -> Signal:
+        if self.method == "none":
+            return sig
+        if self.method == "global_zscore":
+            mean = sig.data.mean()
+            std = sig.data.std()
+            std = std if std > 0 else 1.0
+            data = (sig.data - mean) / std
+        elif self.method == "per_lead_zscore":
+            mean = sig.data.mean(axis=1, keepdims=True)
+            std = sig.data.std(axis=1, keepdims=True)
+            std = np.where(std > 0, std, 1.0)
+            data = (sig.data - mean) / std
+        else:
+            raise ValueError(f"unknown normalization method: {self.method}")
+        return Signal(
+            data=np.ascontiguousarray(data, dtype=np.float32),
+            leads=sig.leads,
+            sampling_rate_hz=sig.sampling_rate_hz,
+            unit=sig.unit,
+        )
+
+
+@dataclass(frozen=True)
+class BandFilter(Op):
+    kind: str
+    cutoff_hz: Any
+    order: int = 4
+    name: str = field(default="filter", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "cutoff_hz": self.cutoff_hz, "order": self.order}
+
+    def apply(self, sig: Signal) -> Signal:
+        nyquist = sig.sampling_rate_hz / 2.0
+        if self.kind == "notch":
+            quality = 30.0
+            b, a = sps.iirnotch(self.cutoff_hz / nyquist, quality)
+            filtered = sps.filtfilt(b, a, sig.data, axis=1)
+        elif self.kind in ("highpass", "lowpass"):
+            sos = sps.butter(
+                self.order, self.cutoff_hz / nyquist, btype=self.kind, output="sos"
+            )
+            filtered = sps.sosfiltfilt(sos, sig.data, axis=1)
+        else:
+            raise ValueError(f"unknown filter kind: {self.kind}")
+        return Signal(
+            data=np.ascontiguousarray(filtered, dtype=np.float32),
             leads=sig.leads,
             sampling_rate_hz=sig.sampling_rate_hz,
             unit=sig.unit,
