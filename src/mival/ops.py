@@ -9,12 +9,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import signal as sps
 
 from mival.signal import Signal
+
+
+# resample_poly builds a filter proportional to max(up, down); an exact but
+# enormous ratio is a data-quality signal, not something to silently compute.
+_MAX_POLYPHASE_FACTOR = 10000
+
+
+def _exact_rate(hz: float) -> Optional[Fraction]:
+    """Return hz as an exact Fraction, or None if it cannot be represented."""
+    frac = Fraction(hz).limit_denominator(10 ** 6)
+    return frac if float(frac) == float(hz) else None
 
 
 class Op:
@@ -42,10 +53,22 @@ class Resample(Op):
     def apply(self, sig: Signal) -> Signal:
         if sig.sampling_rate_hz == self.target_hz:
             return sig
-        ratio = Fraction(self.target_hz / sig.sampling_rate_hz).limit_denominator(1000)
-        resampled = sps.resample_poly(
-            sig.data, ratio.numerator, ratio.denominator, axis=1
-        )
+        target = _exact_rate(self.target_hz)
+        source = _exact_rate(sig.sampling_rate_hz)
+        if target is None or source is None:
+            raise ValueError(
+                f"cannot resample {sig.sampling_rate_hz} Hz to {self.target_hz} Hz: "
+                "one of the rates has no exact rational representation"
+            )
+        ratio = target / source
+        up, down = ratio.numerator, ratio.denominator
+        if max(up, down) > _MAX_POLYPHASE_FACTOR:
+            raise ValueError(
+                f"cannot resample {sig.sampling_rate_hz} Hz to {self.target_hz} Hz: "
+                f"the exact ratio {up}/{down} exceeds the polyphase factor limit "
+                f"{_MAX_POLYPHASE_FACTOR}"
+            )
+        resampled = sps.resample_poly(sig.data, up, down, axis=1)
         return Signal(
             data=np.ascontiguousarray(resampled, dtype=np.float32),
             leads=sig.leads,
