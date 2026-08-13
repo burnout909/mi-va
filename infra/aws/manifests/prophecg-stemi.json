@@ -1,0 +1,56 @@
+{
+  "model_id": "prophecg-stemi",
+  "source": "s3://<bucket>/Users/<user>/STEMI_JKL/BestModelSaved/",
+  "paper_doi": "10.1016/j.annemergmed.2024.06.004",
+  "runtime": {
+    "python": "3.9.25",
+    "tensorflow_cpu": "2.7.4",
+    "keras": "2.7.0"
+  },
+  "input": {
+    "shape": [1, 5000, 8],
+    "lead_order": ["I", "II", "V1", "V2", "V3", "V4", "V5", "V6"],
+    "sampling_hz": 500,
+    "normalization": "not identified in the archived dataset-construction notebook"
+  },
+  "output": {
+    "shape": [1, 2],
+    "activation": "softmax",
+    "positive_index": 1,
+    "ensemble": "arithmetic mean of five member softmax outputs",
+    "reported_ptb_revision_threshold": 0.0768
+  },
+  "artifacts": [
+    {
+      "file": "221204_16431_bestmodel.h5",
+      "size_bytes": 2407504,
+      "sha256": "316e4fac1ccf994625dfc918f5bb5c6cecc3ff689dcf38b698b4322427754894"
+    },
+    {
+      "file": "221204_16432_bestmodel.h5",
+      "size_bytes": 2407504,
+      "sha256": "5754744b3ef464266d7891ab62a403c82ce6314f17578b400157c2e2684d30f3"
+    },
+    {
+      "file": "221204_16433_bestmodel.h5",
+      "size_bytes": 2407504,
+      "sha256": "8691d778cb439189a5d19173daed58052d2570b9fe4b3f4ccae10894349f3f39"
+    },
+    {
+      "file": "221204_16434_bestmodel.h5",
+      "size_bytes": 2407504,
+      "sha256": "6cb467412d62d4ac542695fdb674f6e760ab0dbd02c4a9f9ad8a665f2fa4690b"
+    },
+    {
+      "file": "221204_16435_bestmodel.h5",
+      "size_bytes": 2407504,
+      "sha256": "1fea2e24a4a0acc68141ab4a4cc5b699eab58b0b485e777a226e2e6fd187939d"
+    }
+  ],
+  "smoke_test": {
+    "all_members_loaded": true,
+    "mean_ensemble_forward": true,
+    "probability_sum": 1.0,
+    "verified_at": "2026-08-10"
+  }
+}

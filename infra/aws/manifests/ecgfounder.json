@@ -1,0 +1,33 @@
+{
+  "model_id": "PKUDigitalHealth/ECGFounder",
+  "model_revision": "d9b1793951b2342f5f7e84f1ac03cd37f8a08724",
+  "source_repository": "https://github.com/PKUDigitalHealth/ECGFounder",
+  "source_commit": "68d25f25e323a4a423b9d9e8ea2e0af3f234bf22",
+  "artifact": {
+    "file": "12_lead_ECGFounder.pth",
+    "size_bytes": 369942585,
+    "sha256": "ee199f3781f4ae1f732973267f003da0a759ea12bddb0dd28a77faa60aca7997"
+  },
+  "runtime": {
+    "python": "3.10.20",
+    "torch": "2.13.0+cu130",
+    "device": "NVIDIA L4"
+  },
+  "input": {
+    "shape": [1, 12, 5000],
+    "lead_order": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+    "sampling_hz": 500,
+    "normalization": "global z-score over the complete 12 x 5000 array"
+  },
+  "output": {
+    "pretraining_logits": 150,
+    "feature_width": 1024,
+    "downstream_head_required": true
+  },
+  "smoke_test": {
+    "strict_state_dict_load": true,
+    "cuda_forward": true,
+    "finite_output": true,
+    "verified_at": "2026-08-10"
+  }
+}

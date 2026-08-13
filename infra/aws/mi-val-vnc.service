@@ -1,0 +1,19 @@
+[Unit]
+Description=MI-VAL local-only TigerVNC desktop
+After=network.target mi-val-storage.service
+Requires=mi-val-storage.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+Environment=HOME=/home/ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStartPre=-/usr/bin/tigervncserver -kill :1
+ExecStart=/usr/bin/tigervncserver :1 -fg -localhost yes -SecurityTypes None -geometry 1920x1080 -depth 24
+ExecStop=-/usr/bin/tigervncserver -kill :1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

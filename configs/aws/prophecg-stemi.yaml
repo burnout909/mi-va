@@ -1,0 +1,89 @@
+# Site-ready model/preprocess contract. The amplitude contract remains TODO;
+# do not start clinical-data inference until it is confirmed against the
+# original MUSE preprocessing and the DICOM ChannelSensitivity units.
+site: dicom-miva
+
+cohort:
+  cohort_definition_id: 0
+  name: "TODO: ATLAS index cohort"
+  results_schema: results
+  cdm_schema: cdm
+  cohort_table: cohort
+  atlas_url: null
+  atlas_definition_json: null
+
+retrieval:
+  modality: ECG
+  window_start_days: -1
+  window_end_days: 0
+  selection: nearest_to_index
+  max_per_subject: 1
+  require_local_file: true
+  metadata_filters:
+    Sampling Frequency: [500]
+  local_path_root: /scratch/mi-val/dicom
+
+preprocess:
+  loader: dicom_waveform
+  strict: true
+  name: prophecg-stemi-8lead-500hz
+  modality: ECG
+  version: "0.1.0"
+  description: "Known shape and lead contract; amplitude scaling is pending."
+  ops:
+    - op: select_leads
+      leads: [I, II, V1, V2, V3, V4, V5, V6]
+    - op: resample
+      target_hz: 500
+    - op: crop_or_pad
+      n_samples: 5000
+      mode: center
+    - op: drop_if_flat
+
+models:
+  - id: prophecg-stemi
+    name: PROPHECG-STEMI five-member ensemble
+    version: "221204-16431-16435"
+    task: binary_classification
+    modality: ECG
+    source_type: local
+    source_uri: /data/mi-val/models/prophecg-stemi
+    weights_format: h5
+    framework: tensorflow-cpu==2.7.4;keras==2.7.0
+    python_version: "3.9.25"
+    device: cpu
+    ensemble: 5
+    input_spec:
+      sampling_hz: 500
+      n_leads: 8
+      lead_order: [I, II, V1, V2, V3, V4, V5, V6]
+      duration_s: 10
+      units: raw
+      shape: [5000, 8]
+      normalization: none_identified
+    output_spec:
+      n_outputs: 2
+      activation: softmax
+      class_names: [Not-STEMI, STEMI]
+      positive_index: 1
+    hyperparameters:
+      ensemble_reduction: arithmetic_mean
+      archived_ptb_revision_threshold: 0.0768
+      manifest: /data/mi-val/manifests/models/prophecg-stemi.json
+    known_limitations:
+      - "Amplitude unit/scaling and the 5120-to-5000 preprocessing history require confirmation."
+      - "The archived PTB threshold is not automatically transferable to MI-CDM."
+    citation: "doi:10.1016/j.annemergmed.2024.06.004"
+    intended_use: "Retrospective validation research only."
+
+evaluation:
+  task: binary_classification
+  primary_metrics: [auroc, auprc]
+  secondary_metrics: [sensitivity, specificity, ppv, npv, f1, mcc, balanced_accuracy]
+  operating_point: youden
+  bootstrap_n: 1000
+  ci_level: 0.95
+  calibration: true
+  seed: 42
+  subgroup_by: [Sampling Frequency, ChannelLabel, gender, age_group]
+  rationale: "Re-estimate the operating point on the locked validation protocol."

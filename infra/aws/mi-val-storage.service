@@ -1,0 +1,13 @@
+[Unit]
+Description=Prepare persistent and scratch storage for MI-VAL
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/prepare-mival-storage
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

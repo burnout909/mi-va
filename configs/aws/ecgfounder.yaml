@@ -1,0 +1,87 @@
+# Site-ready model/preprocess contract. Replace cohort id, schemas, ATLAS URL,
+# and atlas_definition_json after the Data4Life cohort export is available.
+site: dicom-miva
+
+cohort:
+  cohort_definition_id: 0
+  name: "TODO: ATLAS index cohort"
+  results_schema: results
+  cdm_schema: cdm
+  cohort_table: cohort
+  atlas_url: null
+  atlas_definition_json: null
+
+retrieval:
+  modality: ECG
+  window_start_days: -1
+  window_end_days: 0
+  selection: nearest_to_index
+  max_per_subject: 1
+  require_local_file: true
+  metadata_filters:
+    Sampling Frequency: [500]
+  local_path_root: /scratch/mi-val/dicom
+
+preprocess:
+  loader: dicom_waveform
+  strict: true
+  name: ecgfounder-12lead-500hz-global-zscore
+  modality: ECG
+  version: "0.1.0"
+  description: "Official ECGFounder MIMIC template contract."
+  ops:
+    - op: select_leads
+      leads: [I, II, III, aVR, aVL, aVF, V1, V2, V3, V4, V5, V6]
+    - op: resample
+      target_hz: 500
+    - op: crop_or_pad
+      n_samples: 5000
+      mode: center
+    - op: drop_if_flat
+    - op: normalize
+      method: global
+
+models:
+  - id: ecgfounder-12lead
+    name: ECGFounder 12-lead backbone
+    version: "hf-d9b1793951b2"
+    task: representation
+    modality: ECG
+    source_type: local
+    source_uri: /data/mi-val/models/ecgfounder/12_lead_ECGFounder.pth
+    weights_format: pth
+    checksum_sha256: ee199f3781f4ae1f732973267f003da0a759ea12bddb0dd28a77faa60aca7997
+    framework: torch==2.13.0+cu130
+    python_version: "3.10.20"
+    device: cuda
+    input_spec:
+      sampling_hz: 500
+      n_leads: 12
+      lead_order: [I, II, III, aVR, aVL, aVF, V1, V2, V3, V4, V5, V6]
+      duration_s: 10
+      units: normalized
+      shape: [12, 5000]
+      normalization: global_zscore
+    output_spec:
+      n_outputs: 1024
+      activation: none
+    hyperparameters:
+      hf_revision: d9b1793951b2342f5f7e84f1ac03cd37f8a08724
+      source_commit: 68d25f25e323a4a423b9d9e8ea2e0af3f234bf22
+      downstream_head: linear_probe
+      freeze_backbone: true
+    known_limitations:
+      - "STEMI downstream head and split protocol are not yet fixed."
+    intended_use: "Retrospective validation research only."
+
+evaluation:
+  task: binary_classification
+  primary_metrics: [auroc, auprc]
+  secondary_metrics: [sensitivity, specificity, ppv, npv, f1, mcc, balanced_accuracy]
+  operating_point: youden
+  bootstrap_n: 1000
+  ci_level: 0.95
+  calibration: true
+  seed: 42
+  subgroup_by: [Sampling Frequency, ChannelLabel, gender, age_group]
+  rationale: "Applies after a fixed STEMI downstream head is produced."
