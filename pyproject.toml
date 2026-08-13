@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mival"
+version = "0.1.0"
+description = "MI-VAL: model-agnostic ECG validation framework on OMOP MI-CDM"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.21", "scipy>=1.7", "jsonschema>=4.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "weights: requires model weight files on disk",
+    "torch: requires PyTorch",
+    "keras: requires TensorFlow/Keras 2.7",
+]
