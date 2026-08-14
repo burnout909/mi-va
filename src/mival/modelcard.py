@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional, Tuple
 
 from mival.contract import InputContract
 
+_REQUIRED_TOP_FIELDS = (
+    "model_id",
+    "Name",
+)
+
 _REQUIRED_MIVAL_FIELDS = (
     "adapter",
     "weights",
@@ -43,6 +48,9 @@ class ModelCard:
 
 def load_card(path: Path) -> ModelCard:
     body = json.loads(Path(path).read_text())
+    for key in _REQUIRED_TOP_FIELDS:
+        if key not in body:
+            raise ValueError(f"{path}: {key} is required")
     ext = body.get("x-mival")
     if ext is None:
         raise ValueError(f"{path}: missing x-mival extension block")

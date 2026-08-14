@@ -78,3 +78,12 @@ def test_card_without_pretraining_corpora_is_rejected(tmp_path):
     bad.write_text(json.dumps(body))
     with pytest.raises(ValueError, match="pretraining_corpora"):
         load_card(bad)
+
+
+def test_card_without_top_level_name_is_rejected(tmp_path):
+    body = json.loads((REGISTRY / "ecgfounder.json").read_text())
+    del body["Name"]
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(body))
+    with pytest.raises(ValueError, match="Name"):
+        load_card(bad)
