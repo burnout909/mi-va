@@ -202,3 +202,54 @@ def test_missing_input_names_the_stage_and_the_slot(tmp_path):
     ctx = context(tmp_path, stage)
     with pytest.raises(KeyError, match="cohort_index"):
         ctx.input_path("cohort_index")
+
+
+def test_config_inputs_enter_the_config_hash(tmp_path):
+    """Editing a file the stage discovers itself must invalidate the run.
+
+    The ModelCard registry arrives as a directory rather than as --input, so
+    without this hook a card edit left config_hash unchanged and the stale run
+    was skipped forever.
+    """
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    card = registry / "some-model.json"
+    card.write_text('{"model_id": "a"}')
+
+    class Registered(Recorder):
+        def config_inputs(self, spec):
+            return {f"modelcard:{p.stem}": p for p in sorted(registry.glob("*.json"))}
+
+    stage = Registered()
+    before = context(tmp_path, stage).layout.config_hash
+    card.write_text('{"model_id": "a", "threshold": 0.5}')
+    after = context(tmp_path, stage).layout.config_hash
+    assert before != after
+
+
+def test_config_inputs_are_recorded_in_the_manifest(tmp_path):
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "some-model.json").write_text('{"model_id": "a"}')
+
+    class Registered(Recorder):
+        def config_inputs(self, spec):
+            return {"modelcard:some-model": registry / "some-model.json"}
+
+    stage = Registered()
+    ctx = context(tmp_path, stage)
+    execute(stage, ctx)
+    paths = [ref.path for ref in RunManifest.read(ctx.layout.manifest_path).input_artifacts]
+    assert any(path.endswith("some-model.json") for path in paths)
+
+
+def test_config_input_colliding_with_a_cli_input_is_rejected(tmp_path):
+    source = tmp_path / "cohort.parquet"
+    source.write_bytes(b"one")
+
+    class Colliding(Recorder):
+        def config_inputs(self, spec):
+            return {"cohort_index": source}
+
+    with pytest.raises(ValueError, match="collides"):
+        context(tmp_path, Colliding(), inputs={"cohort_index": source})

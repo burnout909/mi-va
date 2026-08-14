@@ -117,6 +117,18 @@ class Stage:
     def required_inputs(self) -> tuple:
         return ()
 
+    def config_inputs(self, spec: Mapping[str, Any]) -> Dict[str, Path]:
+        """Files the stage discovers for itself that must enter config_hash.
+
+        Not everything a stage reads arrives as ``--input``. A stage that
+        resolves a *directory* from its spec and reads whatever it finds there
+        — the ModelCard registry is the case that motivated this — would
+        otherwise keep the same config_hash after a card's contents changed,
+        and the stale run would be skipped forever. Returning those files here
+        puts their checksums in the hash and their paths in the manifest.
+        """
+        return {}
+
     def run(self, ctx: StageContext) -> StageResult:  # pragma: no cover - abstract
         raise NotImplementedError
 
@@ -148,7 +160,16 @@ def prepare(
     """Build the context: hash the config, resolve paths, arm the ledger."""
     from .hashing import sha256_file
 
-    checksums = {name: sha256_file(path) for name, path in sorted(inputs.items())}
+    resolved = dict(inputs)
+    for name, path in stage.config_inputs(spec).items():
+        if name in resolved:
+            raise ValueError(
+                f"stage {stage.name!r} declares config input {name!r}, which collides "
+                "with an input given on the command line"
+            )
+        resolved[name] = Path(path)
+
+    checksums = {name: sha256_file(path) for name, path in sorted(resolved.items())}
     digest = config_hash(spec, checksums)
     layout = run_layout(study_id, stage.name, digest, runs_root)
     return StageContext(
@@ -157,7 +178,7 @@ def prepare(
         spec=spec,
         layout=layout,
         ledger=ExclusionLedger(stage=stage.name, allowed_codes=stage.reason_codes),
-        inputs=dict(inputs),
+        inputs=resolved,
         seed=seed,
     )
 

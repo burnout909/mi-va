@@ -13,6 +13,12 @@ dependencies = ["numpy>=1.21", "scipy>=1.7", "jsonschema>=4.0", "pyyaml>=5.4"]
 # Table I/O is optional at import time: mival.pipeline must import in the
 # Python 3.9 Keras 2.7 environment even where pyarrow is unavailable.
 tables = ["pandas>=1.3", "pyarrow>=8"]
+# Same rule as `tables`: AUROC/AUPRC come from scikit-learn and figures from
+# matplotlib, but neither may be imported at module scope — the model
+# environments carry a backend and little else, and `import mival` has to work
+# there. Both are imported inside the functions that need them.
+metrics = ["scikit-learn>=1.0"]
+figures = ["matplotlib>=3.4"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
