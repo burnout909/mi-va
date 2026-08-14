@@ -21,6 +21,8 @@ from mival.ops import (
     Resample,
     ScaleUnit,
     SelectLeads,
+    SUPPORTED_UNITS,
+    resampled_length,
 )
 from mival.signal import DERIVABLE_LEADS, SourceMetadata
 
@@ -38,6 +40,13 @@ def compile_recipe(
     if source.unit is None:
         raise CompileError(
             "unit_missing", "source declares no amplitude unit or sensitivity"
+        )
+    if source.unit not in SUPPORTED_UNITS:
+        raise CompileError(
+            "unit_missing",
+            "source unit {0!r} is not one of {1}".format(
+                source.unit, sorted(SUPPORTED_UNITS)
+            ),
         )
     ops.append(ScaleUnit(source.unit, contract.unit))
 
@@ -60,11 +69,9 @@ def compile_recipe(
                 f"{contract.sampling_rate_hz} Hz",
             )
         ops.append(Resample(contract.sampling_rate_hz))
-        n_after_resample = int(
-            round(source.n_samples * contract.sampling_rate_hz / source.sampling_rate_hz)
-        )
-    else:
-        n_after_resample = source.n_samples
+    n_after_resample = resampled_length(
+        source.n_samples, source.sampling_rate_hz, contract.sampling_rate_hz
+    )
 
     # 4. leads
     available = set(source.leads)

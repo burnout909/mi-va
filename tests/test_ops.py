@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mival.ops import BandFilter, Crop, Normalize, OpChain, Pad, ReconstructLeads, Resample, ScaleUnit, SelectLeads
+from mival.ops import BandFilter, Crop, Normalize, OpChain, Pad, ReconstructLeads, Resample, ScaleUnit, SelectLeads, resampled_length
 from mival.signal import LEADS_12, Signal
 
 
@@ -195,3 +195,9 @@ def test_highpass_filter_removes_dc_offset():
     )
     out = BandFilter("highpass", 0.5).apply(offset)
     assert abs(float(out.data.mean())) < 0.05
+
+
+def test_resampled_length_matches_resample_poly():
+    for fs, n in ((1000.0, 10000), (999.0, 9989), (4096.0, 8192), (250.0, 2500)):
+        sig = make_signal(n_leads=1, n_samples=n, fs=fs)
+        assert Resample(500.0).apply(sig).n_samples == resampled_length(n, fs, 500.0)

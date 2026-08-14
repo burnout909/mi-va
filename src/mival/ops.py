@@ -28,6 +28,34 @@ def _exact_rate(hz: float) -> Optional[Fraction]:
     return frac if float(frac) == float(hz) else None
 
 
+def resample_factors(source_hz: float, target_hz: float) -> Tuple[int, int]:
+    """Exact polyphase (up, down) factors for source_hz -> target_hz."""
+    target = _exact_rate(target_hz)
+    source = _exact_rate(source_hz)
+    if target is None or source is None:
+        raise ValueError(
+            f"cannot resample {source_hz} Hz to {target_hz} Hz: "
+            "one of the rates has no exact rational representation"
+        )
+    ratio = target / source
+    up, down = ratio.numerator, ratio.denominator
+    if max(up, down) > _MAX_POLYPHASE_FACTOR:
+        raise ValueError(
+            f"cannot resample {source_hz} Hz to {target_hz} Hz: "
+            f"the exact ratio {up}/{down} exceeds the polyphase factor limit "
+            f"{_MAX_POLYPHASE_FACTOR}"
+        )
+    return up, down
+
+
+def resampled_length(n_samples: int, source_hz: float, target_hz: float) -> int:
+    """Sample count resample_poly produces, which is ceil(n * up / down)."""
+    if source_hz == target_hz:
+        return n_samples
+    up, down = resample_factors(source_hz, target_hz)
+    return -(-n_samples * up // down)
+
+
 class Op:
     """Base class. Subclasses set `name` and implement `apply`."""
 
@@ -53,21 +81,7 @@ class Resample(Op):
     def apply(self, sig: Signal) -> Signal:
         if sig.sampling_rate_hz == self.target_hz:
             return sig
-        target = _exact_rate(self.target_hz)
-        source = _exact_rate(sig.sampling_rate_hz)
-        if target is None or source is None:
-            raise ValueError(
-                f"cannot resample {sig.sampling_rate_hz} Hz to {self.target_hz} Hz: "
-                "one of the rates has no exact rational representation"
-            )
-        ratio = target / source
-        up, down = ratio.numerator, ratio.denominator
-        if max(up, down) > _MAX_POLYPHASE_FACTOR:
-            raise ValueError(
-                f"cannot resample {sig.sampling_rate_hz} Hz to {self.target_hz} Hz: "
-                f"the exact ratio {up}/{down} exceeds the polyphase factor limit "
-                f"{_MAX_POLYPHASE_FACTOR}"
-            )
+        up, down = resample_factors(sig.sampling_rate_hz, self.target_hz)
         resampled = sps.resample_poly(sig.data, up, down, axis=1)
         return Signal(
             data=np.ascontiguousarray(resampled, dtype=np.float32),
@@ -140,6 +154,7 @@ class Pad(Op):
 
 
 _UNIT_TO_MV = {"mV": 1.0, "uV": 1e-3, "µV": 1e-3}
+SUPPORTED_UNITS = frozenset(_UNIT_TO_MV)
 
 
 @dataclass(frozen=True)

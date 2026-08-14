@@ -128,3 +128,32 @@ def test_short_record_raises_duration_short():
 def test_short_record_is_padded_when_policy_allows():
     chain = compile_recipe(PROPHECG, mimic_source(n=2500), pad_policy="zero")
     assert "pad" in [op["name"] for op in chain.describe()]
+
+
+def test_unrecognised_unit_raises_unit_missing():
+    with pytest.raises(CompileError) as excinfo:
+        compile_recipe(PROPHECG, mimic_source(unit="V"))
+    assert excinfo.value.reason_code == "unit_missing"
+    assert "V" in excinfo.value.detail
+
+
+def test_post_resample_length_matches_what_resample_actually_yields():
+    # 9989 samples at 999 Hz is ~10.0 s. round() predicts 4999 and would
+    # wrongly reject the record; resample_poly yields exactly 5000.
+    meta = mimic_source(fs=999.0, n=9989)
+    chain = compile_recipe(PROPHECG, meta)
+    out = chain.apply(make_signal(meta))
+    assert out.n_samples == 5000
+    assert [op["name"] for op in chain.describe()] == [
+        "scale_unit",
+        "resample",
+        "select_leads",
+        "normalize",
+    ]
+
+
+def test_compiled_chain_length_prediction_agrees_with_application():
+    for fs, n in ((1000.0, 10000), (999.0, 9989), (2000.0, 20000)):
+        meta = mimic_source(fs=fs, n=n)
+        out = compile_recipe(PROPHECG, meta).apply(make_signal(meta))
+        assert out.n_samples == PROPHECG.n_samples, (fs, n, out.n_samples)
