@@ -308,3 +308,87 @@ def rank_reversal(
     axes.set_ylabel(metric_label)
     axes.set_title("Rank stability")
     return _save(figure, path)
+
+
+def case_waveform(
+    samples,
+    path: Union[str, Path],
+    leads: Optional[Sequence[str]] = None,
+    title: str = "",
+    annotations: Sequence[str] = (),
+    attribution=None,
+    sampling_rate_hz: Optional[float] = None,
+) -> Path:
+    """One case: the model's input signal, lead by lead, with its context.
+
+    ``samples`` is ``(n_leads, n_samples)`` — the tensor the model was actually
+    given, not the source recording. A reviewer judging why a model called a
+    trace abnormal has to see the trace the model saw; resampling, rescaling and
+    lead selection all happened before it.
+
+    ``attribution`` is optional and has the same shape as ``samples``. It is
+    drawn as a shaded band behind each trace rather than as a recoloured line,
+    so that the ECG morphology stays readable — the morphology is what the
+    reviewer is judging, and a saliency-coloured trace hides it.
+    """
+    pyplot = _pyplot()
+    rows = list(samples)
+    n_leads = len(rows)
+    if n_leads == 0:
+        raise ValueError("case_waveform needs at least one lead")
+    names = (
+        [str(name) for name in leads]
+        if leads and len(leads) == n_leads
+        else [f"lead {index}" for index in range(n_leads)]
+    )
+    n_samples = len(rows[0])
+    duration = n_samples / float(sampling_rate_hz) if sampling_rate_hz else float(n_samples)
+    x_label = "time (s)" if sampling_rate_hz else "sample"
+
+    height = 0.85 * n_leads + 1.6 + 0.22 * len(annotations)
+    figure, axes = pyplot.subplots(
+        n_leads, 1, sharex=True, figsize=(9, height), squeeze=False
+    )
+    column = [pair[0] for pair in axes]
+    scale = None
+    if attribution is not None:
+        magnitudes = [abs(float(value)) for row in attribution for value in row]
+        peak = max(magnitudes) if magnitudes else 0.0
+        scale = peak if peak > 0 else None
+    for index, axis in enumerate(column):
+        values = [float(value) for value in rows[index]]
+        times = [position * duration / max(n_samples - 1, 1) for position in range(len(values))]
+        if scale is not None:
+            weights = [abs(float(value)) / scale for value in list(attribution)[index]]
+            axis.imshow(
+                [weights],
+                aspect="auto",
+                cmap="Reds",
+                vmin=0.0,
+                vmax=1.0,
+                alpha=0.45,
+                extent=(0.0, duration, min(values), max(values) if max(values) > min(values) else min(values) + 1e-9),
+            )
+        axis.plot(times, values, linewidth=0.7, color="black")
+        axis.set_ylabel(names[index], rotation=0, ha="right", va="center", fontsize=8)
+        axis.tick_params(labelsize=7)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+    column[-1].set_xlabel(x_label, fontsize=8)
+    if title:
+        figure.suptitle(title, fontsize=10)
+    if annotations:
+        figure.text(
+            0.01,
+            0.005,
+            "\n".join(str(line) for line in annotations),
+            fontsize=7,
+            va="bottom",
+            family="monospace",
+        )
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    figure.tight_layout(rect=(0, 0.02 + 0.018 * len(annotations), 1, 0.97))
+    figure.savefig(target, dpi=150)
+    pyplot.close(figure)
+    return target

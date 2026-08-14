@@ -119,6 +119,41 @@ softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
    하드웨어에서 실행 가능하지 않다. 카드가 선언만 하고 실행할 수 없는 상태를
    남길지, 선언을 현실에 맞출지 정해야 한다.
 
+4. fitted head를 디스크에 남길 것인가?
+   `linear_probe`·fine-tune 된 head(`LinearHead`: weights, bias, mean, scale)는
+   models stage 메모리에만 존재한다. 그래서 Misclassification이 그 arm의 handle을
+   복원할 수 없고, 학습된 arm의 사례에는 attribution overlay를 그리지 못한다
+   (`attribution_status = unavailable_fitted_head_not_persisted`). head는 작은 배열
+   4개이므로 저장 비용은 사실상 없다. 남기면 6단계가 학습 arm까지 해석할 수 있고,
+   예측을 재현 검증할 수도 있다. 다만 이는 4단계 산출물 계약의 변경이다.
+
+### Misclassification (Plan 7 구현에서 제기됨)
+
+1. attribution baseline을 무엇으로 선언할 것인가?
+   Integrated Gradients(Sundararajan et al. 2017)는 baseline에 상대적인 귀속을
+   내므로 baseline이 곧 "무엇과 비교했는가"다. 영상의 관례인 0 baseline은 ECG에서
+   **무신호가 아니라 asystole**이며, STEMI 모델이 강한 의견을 갖는 극단적 이상
+   파형이다. 그래서 코드에 기본값을 두지 않고 선언을 강제했다. 실무적 선택지는
+   (a) dev split의 lead별 평균 — "이 코호트의 전형적 기록 대비"라는 해석,
+   (b) lead별 중앙값, (c) `zeros`를 caveat과 함께. 판단이 필요하다.
+
+2. attribution overlay를 논문·보고서에 실을 것인가?
+   Adebayo et al.(NeurIPS 2018)은 널리 쓰이는 saliency 방법 여러 개가 **모델
+   가중치를 무작위화해도 그림이 거의 변하지 않음**을 보였다. 해부학적으로 그럴듯한
+   지도는 그 자체로 근거가 아니다. 현재 구현은 이를 §4.6의 exploratory 검토
+   보조 자료로만 쓰고 지표로 보고하지 않는다. Evaluation 범주 4(interpretation)를
+   정량화할 것인지와 함께 결정해야 한다.
+
+3. 개별 waveform 그림의 게재가 MIMIC DUA상 허용되는가? (spec §4.6 확인 항목)
+   ECG/PPG가 생체 식별자로 인식되며 통상적 익명화 후에도 재식별 정확도가 85%를
+   넘는다는 연구가 있다. `cases.parquet`과 `figures/cases/`는 내부 검토용으로
+   생성되므로, 외부 공개 시 어디까지 실을 수 있는지 확인이 필요하다.
+
+4. STARD 보고에서 6단계 사례를 어떻게 위치시킬 것인가?
+   Misclassification은 exploratory이므로 confirmatory 결과와 섞이면 안 된다.
+   Technical Report에서 별도 절로 두고 "사후 선택된 사례"임을 명시하는 방식을
+   전제하고 구현했다. 문서 구조 확정 시 함께 결정한다.
+
 ### Evaluation
 
 1. primary metric과 secondary metric은 무엇인가?
@@ -129,6 +164,15 @@ softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
 ### Pipeline과 Report
 
 1. Misclassification을 독립 6단계로 구현할 것인가, Evaluation의 하위 기능으로 둘 것인가?
+
+   2026-08-14 결정: **독립 6단계**. 이유는 두 단계의 인식론적 지위가 반대이기
+   때문이다 — Evaluation은 사전 지정된 질문에 답하는 confirmatory 추정이고,
+   Misclassification은 사전 지정되지 않은 실패 양식의 exploratory 발견이다. 한
+   단계에 섞으면 성능표를 본 뒤 눈에 띄는 subgroup을 사후 선택해 보고하는 오염이
+   생긴다. 단계와 파일로 분리하면 구조적으로 차단된다. 근거: spec §4.6,
+   medical algorithmic audit (Liu et al., Lancet Digital Health 2022).
+   관련 코드: `src/mival/stages/misclassify.py`, `docs/plans/2026-08-14-plan7-misclassification.md`.
+
 2. Misclassification 담당자는 누구인가?
 3. Technical Report의 형식은 HTML, Word, PDF 중 무엇인가?
 4. 현재 `miva` 5단계 구현을 언제 6단계 문서와 맞출 것인가?

@@ -19,6 +19,11 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
+from mival.adapters._attribution import (
+    DEFAULT_STEPS,
+    integration_points,
+    resolve_baseline,
+)
 from mival.adapters._training import (
     FitData,
     FitHParams,
@@ -65,6 +70,25 @@ def _module_outputs(module: Any, tensor: Any) -> Tuple[Optional[Any], Any]:
 
 def _module_features(module: Any, tensor: Any) -> Any:
     return _module_outputs(module, tensor)[1]
+
+
+def _module_dtype(module: Any) -> Any:
+    """The dtype the module's own parameters use.
+
+    Attribution builds its input tensors rather than receiving them, so it has
+    to match the module instead of hoping the caller's array already did.
+    """
+    import torch
+
+    for parameter in module.parameters():
+        return parameter.dtype
+    return torch.float32
+
+
+def _as_tensor(array: np.ndarray, device: str, dtype: Any) -> Any:
+    import torch
+
+    return torch.from_numpy(np.ascontiguousarray(array)).to(device=device, dtype=dtype)
 
 
 class TorchAdapter(Adapter):
@@ -166,20 +190,111 @@ class TorchAdapter(Adapter):
                 f"{handle.card.model_id!r} returns a representation only; there is no "
                 "published head to read a probability from"
             )
+        return self._positive_probability(handle, logits).detach().cpu().numpy().astype(
+            np.float64
+        )
+
+    def _positive_probability(self, handle: TorchHandle, logits: Any) -> Any:
+        """Card-driven read of the positive class, kept as a tensor.
+
+        ``forward`` detaches it; ``attribute`` differentiates through it. Both
+        must read the same column of the same head, so the branch lives once.
+        """
+        import torch
+
+        index = int(handle.card.output["positive_index"])
         kind = handle.card.output.get("type", "logits")
         if kind == "softmax":
-            probs = torch.softmax(logits, dim=-1)[:, int(index)]
-        elif kind in ("logits", "sigmoid"):
-            probs = torch.sigmoid(logits[:, int(index)])
-        else:
-            raise ValueError(
-                f"{handle.card.model_id!r}: unsupported output.type {kind!r}; the torch "
-                "adapter reads 'softmax', 'logits' or 'sigmoid'"
-            )
-        return probs.detach().cpu().numpy().astype(np.float64)
+            return torch.softmax(logits, dim=-1)[:, index]
+        if kind in ("logits", "sigmoid"):
+            return torch.sigmoid(logits[:, index])
+        raise ValueError(
+            f"{handle.card.model_id!r}: unsupported output.type {kind!r}; the torch "
+            "adapter reads 'softmax', 'logits' or 'sigmoid'"
+        )
 
     def trainable_groups(self, handle: TorchHandle) -> List[str]:
         return [name for name, _ in handle.module.named_children()]
+
+    # -- attribution (spec §4.4, §4.6) --------------------------------------
+
+    def attribute(
+        self,
+        handle: TorchHandle,
+        batch: np.ndarray,
+        baseline: Any = None,
+        steps: int = DEFAULT_STEPS,
+    ) -> np.ndarray:
+        """Integrated Gradients of the positive-class probability.
+
+        Read ``mival.adapters._attribution`` for why ``baseline`` is required.
+        The returned array is in the canonical ``(B, n_leads, n_samples)``
+        layout whatever the card's layout is, so a caller plotting a lead never
+        has to know how the model wanted its input transposed.
+        """
+        import torch
+
+        array = np.asarray(batch, dtype=np.float64)
+        reference = resolve_baseline(baseline, array)
+        layout = handle.card.input_contract.layout
+        module = handle.module
+        dtype = _module_dtype(module)
+
+        x = _as_tensor(to_model_layout(array, layout), handle.device, dtype)
+        base = _as_tensor(to_model_layout(reference, layout), handle.device, dtype)
+
+        was_training = module.training
+        module.eval()
+        try:
+            gradients = torch.zeros_like(x)
+            for alpha in integration_points(steps):
+                point = (base + float(alpha) * (x - base)).detach().requires_grad_(True)
+                probability = self._probability_tensor(handle, point)
+                (gradient,) = torch.autograd.grad(probability.sum(), point)
+                gradients = gradients + gradient
+            attribution = (x - base) * (gradients / float(steps))
+        finally:
+            if was_training:
+                module.train()
+
+        result = attribution.detach().cpu().numpy().astype(np.float64)
+        if layout == "time_lead":
+            result = np.transpose(result, (0, 2, 1))
+        return np.ascontiguousarray(result)
+
+    def _probability_tensor(self, handle: TorchHandle, tensor: Any) -> Any:
+        """The positive-class probability as a differentiable tensor.
+
+        The fitted-head branch re-expresses the NumPy ``LinearHead`` in torch
+        rather than calling it, because attribution needs the gradient to reach
+        the input through the head. It is the same arithmetic — standardise,
+        one linear layer, sigmoid — so a probed handle and an ``inference_only``
+        handle are attributed through paths that agree with what ``forward``
+        returns.
+        """
+        import torch
+
+        if handle.head is None:
+            logits, _features = _module_outputs(handle.module, tensor)
+            if logits is None:
+                raise NotImplementedError(
+                    f"{handle.card.model_id!r} returns a representation only; there is no "
+                    "published head to attribute through"
+                )
+            if handle.card.output.get("positive_index") is None:
+                raise NotImplementedError(
+                    f"{handle.card.model_id!r} declares no output.positive_index, so there "
+                    "is no probability to attribute. Fit a head first."
+                )
+            return self._positive_probability(handle, logits)
+
+        head = handle.head
+        features = _module_features(handle.module, tensor)
+        as_tensor = lambda values: torch.as_tensor(  # noqa: E731 - three identical conversions
+            np.asarray(values, dtype=np.float64), dtype=features.dtype, device=features.device
+        )
+        standardised = (features - as_tensor(head.mean)) / as_tensor(head.scale)
+        return torch.sigmoid(standardised @ as_tensor(head.weights) + float(head.bias))
 
     # -- fitting -----------------------------------------------------------
 

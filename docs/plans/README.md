@@ -10,7 +10,7 @@
 | 4 | [Models stage](2026-08-14-plan4-models.md) | training mode 4종, `fit`, threshold 정책, leakage/contamination gate, prediction 출력 | Plan 1, 2 | **구현 완료** (adapter `fit` 포함) |
 | 5 | [Evaluation stage](2026-08-14-plan5-evaluation.md) | 범주 4개, bootstrap, paired bootstrap 비교, `metrics_long`, figure | Plan 2, 4 | **구현 완료** (범주 4 interpretation은 스키마만) |
 | 6 | Retrieve / Profile | cohort SQL, DICOM 경로 해석, acquisition metadata, event-count gate, split 동결 | **Data4Life 설치 + MI-CDM 접근** | 미작성 (차단됨) |
-| 7 | Misclassification | selector 4종, 사례 시각화, review 병합 | Plan 4, 5 | 미작성 |
+| 7 | [Misclassification](2026-08-14-plan7-misclassification.md) | selector 4종, 사례 시각화, review 병합, attribution | Plan 4, 5 | **구현 완료** |
 
 ## 순서 근거
 
@@ -29,6 +29,6 @@ Plan 2 이후는 방식을 바꿨다. 계약 계층(Plan 2)은 컨트롤러가 �
 ## 남은 작업
 
 - **Plan 6 (Retrieve/Profile)** — Data4Life 설치 + MI-CDM 접근에 차단됨
-- **Plan 7 (Misclassification)** — Plan 4·5 산출물 확인 후 착수
 - **PROPHECG `feature_layer`** — 카드에 `null`이라 spec §2.5의 "PROPHECG head-retrained (`linear_probe`)" arm이 아직 실행 불가다. H5를 열어 penultimate layer 이름을 확인해 카드에 적어야 하며, 5-member ensemble을 어떻게 probe할지도 함께 정해야 한다 (decisions Models 1·2)
+- **fitted head의 영속화** — `linear_probe`·fine-tune 된 head는 models stage 메모리에만 존재하고 디스크에 남지 않는다. 그래서 6단계가 그 arm의 handle을 복원할 수 없고 attribution overlay를 그리지 못한다 (decisions Models 4)
 - **DICOM-MIVA 검증** — Plan 1의 torch 4건 / keras 5건 / golden 2건이 아직 한 번도 실행된 적 없다

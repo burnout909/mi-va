@@ -18,6 +18,7 @@ from typing import Any, List, Mapping
 
 import numpy as np
 
+from mival.adapters._attribution import DEFAULT_STEPS
 from mival.adapters._training import (
     FitData,
     FitHParams,
@@ -57,13 +58,19 @@ class Adapter:
     def trainable_groups(self, handle: Any) -> List[str]:
         raise NotImplementedError
 
-    def attribute(self, handle: Any, batch: np.ndarray) -> np.ndarray:
+    def attribute(
+        self,
+        handle: Any,
+        batch: np.ndarray,
+        baseline: Any = None,
+        steps: int = DEFAULT_STEPS,
+    ) -> np.ndarray:
         """Return per-sample saliency over the input, shape of ``batch``.
 
-        Optional in spec §4.4 and unimplemented for both backends: the
-        misclassification review (Plan 7) is where the attribution method — and
-        in particular its baseline, which is the whole argument in the ECG
-        saliency literature — gets chosen and justified.
+        Optional in spec §4.4. The method and — more importantly — the baseline
+        are chosen in ``mival.adapters._attribution``; read that module before
+        calling this, because ``baseline`` has no default and the reason it has
+        none is the substance of the choice.
         """
         raise NotImplementedError(
             f"adapter {self.name!r} implements no attribute(); spec §4.4 marks it optional"

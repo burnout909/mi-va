@@ -35,15 +35,15 @@ _STAGES: Dict[str, str] = {
     "preprocess": "mival.stages.preprocess:PreprocessStage",
     "models": "mival.stages.models:ModelsStage",
     "evaluate": "mival.stages.evaluate:EvaluateStage",
+    "misclassify": "mival.stages.misclassify:MisclassifyStage",
 }
 
-# Stages 1, 2 and 6 of spec §3.3, kept here so that `mival stages` shows the
-# real pipeline rather than only the parts that happen to be built, and so a
-# typo is distinguishable from a stage that is deliberately not built yet.
+# Stages 1 and 2 of spec §3.3, kept here so that `mival stages` shows the real
+# pipeline rather than only the parts that happen to be built, and so a typo is
+# distinguishable from a stage that is deliberately not built yet.
 _UNBUILT: Dict[str, str] = {
     "retrieve": "blocked on Data4Life installation and MI-CDM access (Plan 6)",
     "profile": "blocked on Data4Life installation and MI-CDM access (Plan 6)",
-    "misclassify": "not yet implemented (Plan 7)",
 }
 
 # Spec §3.3 pipeline order, including the parts not yet built.

@@ -23,7 +23,18 @@ from mival.pipeline.ledger import read_exclusions
 from mival.pipeline.runkey import AXES, REPORT_AXES, RunKey
 from mival.pipeline.stage import Stage, StageContext, StageResult
 from mival.pipeline.tables import read_table, write_table
-from mival.stages.models import PREDICTION_COLUMNS, PRIMARY_THRESHOLD_POLICY, THRESHOLD_POLICIES
+from mival.stages._predictions import (
+    DEV_SPLIT,
+    FALLBACK_THRESHOLD,
+    TEST_SPLIT,
+    ThresholdPolicy,
+    arm_of as _arm_of,
+    fit_operating_thresholds,
+    group_by_run_key as _group_by_run_key,
+    load_predictions as _load_predictions,
+    recorded_thresholds_and_contamination,
+)
+from mival.stages.models import PRIMARY_THRESHOLD_POLICY, THRESHOLD_POLICIES
 from mival.threshold import SENS95_TARGET_SENSITIVITY
 
 #: Output artifacts, relative to ``ctx.layout.artifacts_dir``.
@@ -99,16 +110,10 @@ SUBGROUP_ALL = "all"
 #: values of the same axis and join onto the same predictions (spec §3.4).
 OUTCOME_DIAGNOSTIC = "stemi"
 
-#: Spec §2.4: the two splits of the frozen cohort table. Only dev may carry a
-#: threshold fit (spec §4.4); ``mival.threshold`` refuses anything else, so
-#: this stage names the dev split rather than excluding the test one.
-DEV_SPLIT = "dev"
-TEST_SPLIT = "test"
-
-#: Fallback when no threshold can be fitted. 0.5 is not a clinical choice; it
-#: is the neutral value used only when the run carries no development split,
-#: and it is always accompanied by a warning in the manifest.
-FALLBACK_THRESHOLD = 0.5
+# ``DEV_SPLIT``, ``TEST_SPLIT`` and ``FALLBACK_THRESHOLD`` are imported from
+# ``mival.stages._predictions`` and re-exported here, because the audit stage
+# must use the same values: a case picked as "near the operating threshold" is
+# only meaningful against the threshold this stage reported.
 
 #: Optional input: the models stage's ``train_log.jsonl``. When supplied it is
 #: the authority on both the operating threshold and the contamination flag,
@@ -233,84 +238,6 @@ class EvaluateStage(Stage):
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
-
-
-def _load_predictions(path: Path, label_def: Optional[str] = None):
-    """Read the models stage output, whether a directory or a single file.
-
-    Prediction files are named by their run_key (spec §3.4), which is the only
-    place ``label_def`` is recorded — it is not a column of
-    ``PREDICTION_COLUMNS``. Parsing the name back into a ``RunKey`` recovers
-    every axis, so the axes never have to be re-derived from the contents.
-
-    A single file is also accepted, because the CLI addresses inputs as files
-    (an input is hashed into the config_hash, and a directory has no hash).
-    Such a file must carry the axes as columns; ``label_def`` may instead come
-    from the evaluation spec, and is never guessed.
-    """
-    import pandas
-
-    target = Path(path)
-    if target.is_dir():
-        frames = []
-        for part in sorted(target.glob("*.parquet")):
-            frame = read_table(part)
-            try:
-                key = RunKey.from_string(part.stem)
-            except ValueError as exc:
-                raise ValueError(
-                    f"prediction file {part.name} is not named by a run_key: {exc}"
-                ) from exc
-            _check_axes_agree(frame, key, part.name)
-            for axis, value in key.to_dict().items():
-                frame[axis] = value
-            frames.append(frame)
-        if not frames:
-            raise ValueError(f"no prediction parquet files under {target}")
-        predictions = pandas.concat(frames, ignore_index=True)
-    else:
-        predictions = read_table(target)
-        if "label_def" not in predictions.columns and label_def is not None:
-            predictions["label_def"] = label_def
-
-    missing = [column for column in ("image_occurrence_id", "person_id", "prob") if column not in predictions.columns]
-    if missing:
-        raise ValueError(
-            f"predictions are missing required columns {missing}; expected the schema "
-            f"{list(PREDICTION_COLUMNS)}"
-        )
-    absent_axes = [axis for axis in AXES if axis not in predictions.columns]
-    if absent_axes:
-        raise ValueError(
-            f"predictions are missing run_key axes {absent_axes}. A single prediction file "
-            "must carry every axis as a column (set 'label_def' in the evaluation spec if it "
-            "is not one of them); a directory of files takes the axes from the run_key in "
-            "each file name instead."
-        )
-    return predictions
-
-
-def _check_axes_agree(frame, key: RunKey, filename: str) -> None:
-    """A file's contents must match the run_key in its name.
-
-    The name is what the axes are taken from, so a mismatch would silently
-    attribute one run's predictions to another coordinate. Rather than pick a
-    winner, refuse.
-    """
-    import pandas
-
-    for axis, expected in key.to_dict().items():
-        if axis not in frame.columns or expected is None:
-            continue
-        present = frame[axis].dropna()
-        if present.empty:
-            continue
-        found = {str(value) for value in pandas.unique(present)}
-        if found != {str(expected)}:
-            raise ValueError(
-                f"prediction file {filename} is named {axis}={expected!r} but its rows carry "
-                f"{sorted(found)}"
-            )
 
 
 def _attach_cohort_columns(predictions, cohort):
@@ -440,6 +367,16 @@ class _Settings:
             return bool(self.recorded_contamination[arm])
         return bool(self.contamination.get(key.model_id, False))
 
+    def threshold_policy_settings(self) -> ThresholdPolicy:
+        """The subset the audit stage must share (``mival.stages._predictions``)."""
+        return ThresholdPolicy(
+            threshold=self.threshold,
+            policy=self.threshold_policy,
+            legacy_threshold=self.legacy_threshold,
+            dev_split=self.dev_split,
+            sensitivity_target=self.sensitivity_target,
+        )
+
     def label_column_for(self, label_def: str) -> str:
         return self.label_columns.get(label_def, f"label_{label_def}")
 
@@ -467,36 +404,6 @@ class _Settings:
 # ---------------------------------------------------------------------------
 # Grouping — the only place that knows the axes exist
 # ---------------------------------------------------------------------------
-
-
-def _group_by_run_key(predictions):
-    """Yield ``(RunKey, frame)`` for every distinct coordinate present."""
-    grouped = predictions.groupby(list(AXES), dropna=False, sort=True)
-    for values, frame in grouped:
-        if not isinstance(values, tuple):
-            values = (values,)
-        fields = dict(zip(AXES, values))
-        fields["fold"] = _optional_int(fields.get("fold"))
-        yield RunKey.from_dict({axis: fields[axis] for axis in AXES}), frame
-
-
-def _optional_int(value) -> Optional[int]:
-    if value is None:
-        return None
-    text = str(value)
-    if text in ("", "nan", "None", "NaT", "na", "<NA>"):
-        return None
-    return int(float(text))
-
-
-def _arm_of(key: RunKey) -> Tuple[str, ...]:
-    """The identity of a model configuration, ignoring split and fold.
-
-    Thresholds are a property of the arm, not of the split it is measured on:
-    refitting one per split would mean the test estimate used an operating
-    point chosen on the test set (spec §4.4).
-    """
-    return tuple(getattr(key, axis) for axis in AXES if axis not in ("split", "fold"))
 
 
 def _subgroup_slices(frame, subgroups: Sequence[str]):
@@ -624,109 +531,23 @@ def _fit_thresholds(
     warnings: List[str],
     recorded: Optional[Mapping[Tuple[str, ...], float]] = None,
 ) -> Dict[Tuple[str, ...], float]:
-    """One operating threshold per arm.
-
-    Preference order: an explicit value in the spec, then the value the models
-    stage recorded when it fitted the policy, then a refit here on dev rows.
-    The models stage is preferred because it is the stage that held the
-    ModelCard and the out-of-fold dev probabilities; refitting is the fallback
-    for the case where only a prediction table survived.
-    """
-    import numpy as np
-
-    thresholds: Dict[Tuple[str, ...], float] = {}
-    for key, _ in _group_by_run_key(predictions):
-        arm = _arm_of(key)
-        if arm in thresholds:
-            continue
-        if settings.threshold is not None:
-            thresholds[arm] = settings.threshold
-            continue
-        if recorded and arm in recorded:
-            thresholds[arm] = float(recorded[arm])
-            continue
-        development = predictions
-        for axis, value in zip([axis for axis in AXES if axis not in ("split", "fold")], arm):
-            development = development[development[axis] == value]
-        development = development[development["split"] == settings.dev_split]
-        label_column = settings.label_column_for(key.label_def)
-        if label_column in development.columns:
-            development = development[development[label_column].notna()]
-        else:
-            development = development.iloc[0:0]
-        y = development[label_column].to_numpy(dtype=float) if len(development) else np.array([])
-        if y.size == 0 or len(np.unique(y)) < 2:
-            thresholds[arm] = settings.legacy_threshold
-            warnings.append(
-                f"no usable development split for arm {arm}; falling back to the neutral "
-                f"threshold {settings.legacy_threshold} — threshold-dependent metrics for "
-                "this arm are not a refitted operating point"
-            )
-            continue
-        thresholds[arm] = _refit(
-            development["prob"].to_numpy(dtype=float), y, settings
-        )
-    return thresholds
-
-
-def _refit(p, y, settings: _Settings) -> float:
-    """Delegate to the policies of ``mival.threshold`` (spec §4.4).
-
-    The policy implementation is not repeated here. Beyond avoiding a second
-    copy, ``SplitScores`` carries the split its probabilities came from and the
-    refit functions refuse anything but dev, so the "no threshold is ever
-    chosen on test" rule is enforced by the type rather than by this call site
-    remembering to filter.
-    """
-    from mival.threshold import REFIT_SENS95, REFIT_YOUDEN, SplitScores, refit_sens95, refit_youden
-
-    scores = SplitScores.of(settings.dev_split, p, y)
-    if settings.threshold_policy == REFIT_YOUDEN:
-        return float(refit_youden(scores).value)
-    if settings.threshold_policy == REFIT_SENS95:
-        return float(refit_sens95(scores, settings.sensitivity_target).value)
-    return settings.legacy_threshold
+    """One operating threshold per arm — see ``mival.stages._predictions``."""
+    return fit_operating_thresholds(
+        predictions,
+        settings.threshold_policy_settings(),
+        warnings,
+        recorded,
+        settings.label_column_for,
+    )
 
 
 def _recorded_thresholds_and_contamination(
     path: Path, settings: _Settings, warnings: List[str]
 ):
-    """Read the models stage's ``train_log.jsonl`` (spec §4.4, §3.5).
-
-    That stage fitted every threshold policy on out-of-fold dev probabilities
-    and ran the contamination gate against each ModelCard. Both belong to the
-    run that produced the predictions, so when the log is available it is read
-    rather than reconstructed.
-    """
-    import json
-
-    thresholds: Dict[Tuple[str, ...], float] = {}
-    contaminated: Dict[Tuple[str, ...], bool] = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        entry = json.loads(line)
-        arms = set()
-        for text in entry.get("run_keys", ()):
-            try:
-                arms.add(_arm_of(RunKey.from_string(text)))
-            except ValueError:  # pragma: no cover - a malformed log line
-                warnings.append(f"train_log holds an unparseable run_key: {text!r}")
-        policy = settings.threshold_policy or entry.get(
-            "primary_threshold_policy", PRIMARY_THRESHOLD_POLICY
-        )
-        fit = (entry.get("thresholds") or {}).get(policy)
-        flag = bool((entry.get("contamination") or {}).get("flag", False))
-        for arm in arms:
-            contaminated[arm] = flag
-            if fit is not None and fit.get("value") is not None:
-                thresholds[arm] = float(fit["value"])
-            else:
-                warnings.append(
-                    f"train_log has no {policy!r} threshold for arm {arm}; it will be refitted "
-                    "from the dev predictions"
-                )
-    return thresholds, contaminated
+    """Read the models stage's ``train_log.jsonl`` (spec §4.4, §3.5)."""
+    return recorded_thresholds_and_contamination(
+        path, settings.threshold_policy, warnings
+    )
 
 
 # ---------------------------------------------------------------------------
