@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MI-VAL 실행 옵션</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}html{-webkit-text-size-adjust:100%;height:100%}body{margin:0;height:100%}img,svg{display:block;max-width:100%}button{font:inherit;color:inherit}:focus-visible{outline:2px solid var(--ours);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<style>
+  :root {
+    --ground:#ffffff; --panel:#f4f6f7; --ink:#10171c; --ink-2:#4b5960; --ink-3:#85939b;
+    --rule:#d6dee1; --rule-2:#e9eef0;
+    --ours:#0b6b7f; --ours-bg:#e3f0f4;
+    --gap:#9c5410;  --gap-bg:#fbeedd;
+    --stop:#a3343a; --stop-bg:#fbe9ea;
+    --code-bg:#f0f3f5;
+    --sans: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0b1013; --panel:#161f24; --ink:#e6edf1; --ink-2:#9dadb6; --ink-3:#71838d;
+      --rule:#27343b; --rule-2:#1c262c; --ours:#54bcd8; --ours-bg:#0f313c;
+      --gap:#dda060; --gap-bg:#372516; --stop:#e08b90; --stop-bg:#3a1e20; --code-bg:#0e161a; }
+  }
+  :root[data-theme="dark"] {
+      --ground:#0b1013; --panel:#161f24; --ink:#e6edf1; --ink-2:#9dadb6; --ink-3:#71838d;
+      --rule:#27343b; --rule-2:#1c262c; --ours:#54bcd8; --ours-bg:#0f313c;
+      --gap:#dda060; --gap-bg:#372516; --stop:#e08b90; --stop-bg:#3a1e20; --code-bg:#0e161a; }
+  :root[data-theme="light"] {
+      --ground:#ffffff; --panel:#f4f6f7; --ink:#10171c; --ink-2:#4b5960; --ink-3:#85939b;
+      --rule:#d6dee1; --rule-2:#e9eef0; --ours:#0b6b7f; --ours-bg:#e3f0f4;
+      --gap:#9c5410; --gap-bg:#fbeedd; --stop:#a3343a; --stop-bg:#fbe9ea; --code-bg:#f0f3f5; }
+
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         word-break:keep-all; -webkit-font-smoothing:antialiased; }
+
+  .deck  { height:100vh; display:grid; place-items:center; overflow:hidden; }
+  .slide { display:none; width:min(1020px,92vw); max-height:88vh; overflow-y:auto; }
+  .slide.active { display:flex; flex-direction:column; gap:24px; }
+
+  .bar { position:fixed; left:0; right:0; bottom:0; height:3px; background:var(--rule-2); z-index:30; }
+  .bar > i { display:block; height:100%; background:var(--ours); transition:width .22s ease; }
+  .hud { position:fixed; right:18px; bottom:16px; z-index:31; display:flex; gap:14px; align-items:center;
+         font-family:var(--mono); font-size:12px; color:var(--ink-3); }
+  .hud button { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--rule);
+                border-radius:4px; padding:4px 9px; cursor:pointer; }
+  .hud button:hover { color:var(--ink); }
+  .hud .n { font-variant-numeric:tabular-nums; }
+
+  h1 { font-size:clamp(32px,4.6vw,50px); font-weight:700; line-height:1.24;
+       letter-spacing:-.03em; margin:0; text-wrap:balance; }
+  h2 { font-size:clamp(25px,3.2vw,35px); font-weight:700; line-height:1.3;
+       letter-spacing:-.026em; margin:0; text-wrap:balance; }
+
+  ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:11px; }
+  li { position:relative; padding-left:26px; font-size:clamp(15px,1.65vw,18.5px);
+       line-height:1.6; color:var(--ink-2); }
+  li::before { content:""; position:absolute; left:4px; top:.62em;
+               width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
+  li strong { color:var(--ink); font-weight:700; }
+  li em { font-style:normal; color:var(--ours); font-weight:700; }
+  li.key::before { background:var(--gap); }
+  li.key em { color:var(--gap); }
+  li code, p code, td code, .lede code { font-family:var(--mono); font-size:.88em;
+       background:var(--code-bg); border-radius:3px; padding:1px 5px; color:var(--ink); }
+
+  figure { margin:0; background:var(--panel); border:1px solid var(--rule);
+           border-radius:8px; padding:20px 18px; }
+  .scroll { overflow-x:auto; }
+  svg { display:block; max-width:100%; height:auto; margin:0 auto; }
+
+  p { margin:0; line-height:1.7; }
+  .lede { font-size:clamp(15px,1.6vw,18px); line-height:1.7; color:var(--ink-2); max-width:62ch; }
+  .lede strong { color:var(--ink); font-weight:700; }
+  .lede em { font-style:normal; color:var(--ours); font-weight:700; }
+  .meta { font-family:var(--mono); font-size:13px; color:var(--ink-3); line-height:2; }
+  .title { justify-content:center; align-items:center; text-align:center; }
+
+  table { border-collapse:collapse; width:100%; font-size:14.5px; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--ink-3);
+       letter-spacing:.06em; text-transform:uppercase; padding:0 14px 9px 0;
+       border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:9px 14px 9px 0; color:var(--ink-2); border-bottom:1px solid var(--rule-2);
+       line-height:1.55; vertical-align:top; }
+  td.k { font-family:var(--mono); color:var(--ink); white-space:nowrap; }
+  td.n { color:var(--ink); font-weight:700; }
+  .ok  { color:var(--ours); font-weight:700; }
+  .no  { color:var(--stop); font-weight:700; }
+  .warn{ color:var(--gap); font-weight:700; }
+
+  .knobs { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
+  .knobs.five { grid-template-columns:repeat(5,1fr); }
+  @media (max-width:820px) { .knobs, .knobs.five { grid-template-columns:repeat(2,1fr); } }
+  .knob { font-family:var(--sans); font-size:15px; font-weight:700; color:var(--ink-2);
+          background:var(--ground); border:1.5px solid var(--rule); border-radius:6px;
+          padding:11px 6px; cursor:pointer; transition:all .15s ease; text-align:center; }
+  .knob:hover { border-color:var(--ink-3); color:var(--ink); }
+  .knob[aria-selected="true"] { background:var(--ours-bg); border-color:var(--ours);
+                                border-width:2.5px; color:var(--ink); }
+  .knob small { display:block; font-size:11px; font-weight:500; color:var(--ink-3);
+                margin-top:3px; letter-spacing:.02em; }
+  .knob[aria-selected="true"] small { color:var(--ours); }
+
+  .code { background:var(--code-bg); border:1px solid var(--rule); border-radius:6px;
+          padding:15px 17px; overflow-x:auto; }
+  .code pre { margin:0; font-family:var(--mono); font-size:13px; line-height:1.7; color:var(--ink); }
+  .code .c { color:var(--ink-3); }
+  .code .k { color:var(--ours); font-weight:600; }
+  .code .h { color:var(--gap); font-weight:700; }
+  .hint { font-family:var(--mono); font-size:11px; color:var(--ink-3);
+          letter-spacing:.08em; text-transform:uppercase; margin-bottom:9px; }
+
+  .box { background:var(--ground); border:1px solid var(--rule); border-radius:6px;
+         padding:17px 19px; min-height:190px; display:flex; flex-direction:column; gap:10px; }
+  .box .lead { font-size:18px; font-weight:700; color:var(--ink); line-height:1.45; }
+  .box .body { font-size:15px; color:var(--ink-2); line-height:1.65; }
+  .box .body b { color:var(--ink); font-weight:700; }
+  .box .body i { font-style:normal; color:var(--gap); font-weight:700; }
+  .box .out { font-family:var(--mono); font-size:13px; color:var(--ours);
+              background:var(--ours-bg); border-radius:5px; padding:7px 11px; align-self:flex-start; }
+  .box .ph { font-size:14px; color:var(--ink-3); }
+
+  .cells { display:grid; grid-template-columns:130px repeat(4,1fr); gap:6px; align-items:stretch; }
+  @media (max-width:820px) { .cells { grid-template-columns:100px repeat(4,1fr); } }
+  .cells .hd { font-size:11.5px; font-weight:600; color:var(--ink-3); letter-spacing:.03em;
+               display:flex; align-items:flex-end; padding:0 0 6px 2px; line-height:1.3; }
+  .cells .rw { font-size:14px; font-weight:700; color:var(--ink); display:flex;
+               align-items:center; padding-right:6px; line-height:1.3; }
+  .cell { border:1.5px solid var(--rule); border-radius:6px; background:var(--ground);
+          padding:12px 6px; cursor:pointer; font-size:20px; font-weight:700;
+          transition:all .15s ease; }
+  .cell:hover { border-color:var(--ink-3); }
+  .cell[aria-selected="true"] { border-width:2.5px; border-color:var(--ours); background:var(--ours-bg); }
+  .cell.y { color:var(--ours); } .cell.n { color:var(--stop); } .cell.w { color:var(--gap); }
+
+  @media print {
+    .deck { height:auto; display:block; }
+    .slide { display:flex !important; flex-direction:column; gap:22px;
+             page-break-after:always; max-height:none; width:100%; padding:28px 0; }
+    .bar,.hud { display:none; }
+  }
+</style>
+
+<div class="bar"><i id="prog"></i></div>
+<div class="hud">
+  <button id="theme" type="button">THEME</button>
+  <span class="n"><span id="cur">1</span> / <span id="tot">14</span></span>
+</div>
+
+<div class="deck" id="deck">
+
+<!-- ═══════════════ 1 ═══════════════ -->
+<section class="slide title active">
+  <h1>MI-VAL<br>실행 옵션</h1>
+  <p class="meta">PROPHECG-STEMI &nbsp;·&nbsp; ECGFounder &nbsp;·&nbsp; 2026-08-14</p>
+</section>
+
+<!-- ═══════════════ 2 ═══════════════ -->
+<section class="slide">
+  <h2>이 프레임워크에서 "옵션"이 사는 곳</h2>
+  <p class="lede">선택은 <em>코드가 아니라 두 종류의 파일</em>에 있습니다. 모델을 추가하는 것은
+    ModelCard JSON 하나를 넣는 것이고, 연구 설계를 바꾸는 것은 <code>study.yaml</code>을 고치는
+    것입니다. 실행 코드에는 모델 이름이 등장하지 않습니다.</p>
+
+  <figure class="scroll">
+    <svg viewBox="0 0 960 250" role="img" aria-label="ModelCard 와 study.yaml 이 6단계 파이프라인으로 들어가고, 각 단계가 산출물을 낸다">
+      <g font-family="var(--sans)">
+        <rect x="8" y="16" width="188" height="52" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2.4"/>
+        <text x="102" y="40" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">ModelCard JSON</text>
+        <text x="102" y="58" text-anchor="middle" font-size="12" fill="var(--ink-2)">모델이 무엇인가</text>
+
+        <rect x="8" y="86" width="188" height="52" rx="6" fill="var(--gap-bg)" stroke="var(--gap)" stroke-width="2.4"/>
+        <text x="102" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">study.yaml</text>
+        <text x="102" y="128" text-anchor="middle" font-size="12" fill="var(--ink-2)">무엇을 물을 것인가</text>
+
+        <rect x="8" y="156" width="188" height="52" rx="6" fill="var(--ground)" stroke="var(--rule)" stroke-width="1.6"/>
+        <text x="102" y="180" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink-2)">cohort_index</text>
+        <text x="102" y="198" text-anchor="middle" font-size="12" fill="var(--ink-3)">데이터</text>
+
+        <line x1="200" y1="112" x2="238" y2="112" stroke="var(--ink-3)" stroke-width="1.6"/>
+
+        <g font-size="13" font-weight="700">
+          <rect x="244" y="88" width="104" height="48" rx="6" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.4"/>
+          <text x="296" y="110" text-anchor="middle" fill="var(--ink-3)">1 Retrieve</text>
+          <text x="296" y="126" text-anchor="middle" font-size="11" fill="var(--gap)">차단됨</text>
+
+          <rect x="356" y="88" width="104" height="48" rx="6" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.4"/>
+          <text x="408" y="110" text-anchor="middle" fill="var(--ink-3)">2 Profile</text>
+          <text x="408" y="126" text-anchor="middle" font-size="11" fill="var(--gap)">차단됨</text>
+
+          <rect x="468" y="88" width="112" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="524" y="117" text-anchor="middle" fill="var(--ink)">3 Preprocess</text>
+
+          <rect x="588" y="88" width="104" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="640" y="117" text-anchor="middle" fill="var(--ink)">4 Models</text>
+
+          <rect x="700" y="88" width="112" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="756" y="117" text-anchor="middle" fill="var(--ink)">5 Evaluation</text>
+
+          <rect x="820" y="88" width="132" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="886" y="117" text-anchor="middle" fill="var(--ink)">6 Misclassify</text>
+        </g>
+
+        <g font-size="11.5" font-family="var(--mono)" fill="var(--ink-3)">
+          <text x="524" y="164" text-anchor="middle">tensors/</text>
+          <text x="524" y="180" text-anchor="middle">preprocess_index</text>
+          <text x="640" y="164" text-anchor="middle">predictions/</text>
+          <text x="640" y="180" text-anchor="middle">train_log · heads/</text>
+          <text x="756" y="164" text-anchor="middle">metrics_long</text>
+          <text x="756" y="180" text-anchor="middle">comparisons</text>
+          <text x="886" y="164" text-anchor="middle">cases.parquet</text>
+          <text x="886" y="180" text-anchor="middle">review_template</text>
+        </g>
+        <g stroke="var(--rule)" stroke-width="1.2">
+          <line x1="524" y1="140" x2="524" y2="152"/><line x1="640" y1="140" x2="640" y2="152"/>
+          <line x1="756" y1="140" x2="756" y2="152"/><line x1="886" y1="140" x2="886" y2="152"/>
+        </g>
+      </g>
+    </svg>
+  </figure>
+
+  <ul>
+    <li><strong>3–6단계는 지금 실행 가능</strong>합니다. 1–2단계는 Data4Life · MI-CDM 접근에 막혀 있습니다.</li>
+    <li class="key">기본값이 <em>없는</em> 항목이 몇 개 있습니다. 코드가 알 수 없는 사실이기 때문입니다 — 13번 슬라이드.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 3 ═══════════════ -->
+<section class="slide">
+  <h2>두 모델의 카드</h2>
+  <p class="lede">아래는 <code>registry/models/*.json</code>에 실제로 선언된 값입니다.
+    <strong>이 표가 나머지 모든 옵션을 결정합니다.</strong></p>
+  <figure class="scroll">
+    <table>
+      <tr><th></th><th>PROPHECG-STEMI</th><th>ECGFounder</th></tr>
+      <tr><td class="k">adapter</td><td class="n">keras</td><td class="n">torch</td></tr>
+      <tr><td class="k">runtime</td>
+          <td>TF 2.7.4 / Keras 2.7.0 / Py 3.9.25<br><span class="warn">device: cpu</span></td>
+          <td>torch 2.13.0+cu130 / Py 3.10.20<br><span class="ok">device: cuda</span></td></tr>
+      <tr><td class="k">leads</td><td>8 — I, II, V1–V6</td><td>12 — 표준 유도 전부</td></tr>
+      <tr><td class="k">sampling_rate / duration</td><td>500 Hz · 10 s</td><td>500 Hz · 10 s</td></tr>
+      <tr><td class="k">scaling</td><td class="warn">none</td><td>global_zscore</td></tr>
+      <tr><td class="k">ensemble</td><td class="n">mean_probability, 5 members</td><td>none, 1</td></tr>
+      <tr><td class="k">output</td><td>softmax, positive_index <b>1</b></td>
+          <td>logits, 150 outputs,<br>positive_index <span class="no">null</span></td></tr>
+      <tr><td class="k">feature_layer</td><td class="no">null</td><td class="ok">backbone</td></tr>
+      <tr><td class="k">threshold</td><td>0.0768 <span class="warn">(legacy, archived PTB-XL)</span></td><td>없음</td></tr>
+      <tr><td class="k">pretraining_corpora</td><td>institutional-ed-ecg-2022</td><td>harvard-emory-ecg</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key">두 모델은 <em>같은 프로세스에서 돌 수 없습니다.</em> Python 3.9 + TF 2.7 환경과 Python 3.10 + torch 환경이 분리돼 있어, 단계마다 환경을 바꿔 실행합니다.</li>
+    <li>붉게 표시된 두 칸(<code>positive_index: null</code>, <code>feature_layer: null</code>)이 다음 슬라이드의 빈칸을 만듭니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 4 ═══════════════ -->
+<section class="slide">
+  <h2>실행 가능한 arm — 칸을 눌러보세요</h2>
+  <figure id="armfig">
+    <div class="cells" id="armcells">
+      <div class="hd"></div>
+      <div class="hd">inference_only</div><div class="hd">linear_probe</div>
+      <div class="hd">partial_unfreeze</div><div class="hd">full_finetune</div>
+
+      <div class="rw">PROPHECG</div>
+      <button class="cell y" data-a="p-inf">✓</button>
+      <button class="cell n" data-a="p-lin">✗</button>
+      <button class="cell w" data-a="p-par">–</button>
+      <button class="cell n" data-a="p-full">✗</button>
+
+      <div class="rw">ECGFounder</div>
+      <button class="cell n" data-a="e-inf">✗</button>
+      <button class="cell y" data-a="e-lin">✓</button>
+      <button class="cell y" data-a="e-par">✓</button>
+      <button class="cell y" data-a="e-full">✓</button>
+    </div>
+    <div class="box" id="armbox" style="margin-top:14px"></div>
+  </figure>
+  <p class="lede">spec §2.5가 계획한 arm은 넷입니다: PROPHECG <code>inference_only</code>,
+    PROPHECG <code>linear_probe</code>, ECGFounder <code>linear_probe</code>, ECGFounder
+    <code>full_finetune</code>. <strong>이 중 하나가 지금 막혀 있습니다.</strong></p>
+</section>
+
+<!-- ═══════════════ 5 ═══════════════ -->
+<section class="slide">
+  <h2>3단계 Preprocess 옵션</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th>키</th><th>값</th><th>의미</th></tr>
+      <tr><td class="k">registry</td><td>경로</td><td>ModelCard 디렉터리. 카드가 바뀌면 config_hash가 바뀌어 재실행된다</td></tr>
+      <tr><td class="k">allow_upsample</td><td>false <span class="ok">(기본)</span> / true</td>
+          <td>원본이 계약보다 낮은 주파수일 때. 기본은 <b>제외</b> — 없는 정보를 만들어내지 않는다</td></tr>
+      <tr><td class="k">pad_policy</td><td>reject <span class="ok">(기본)</span> / zero</td>
+          <td>원본이 계약보다 짧을 때. 기본은 <b>제외</b></td></tr>
+      <tr><td class="k">perturbation.mode</td><td>ofat <span class="ok">(기본)</span> / cartesian</td>
+          <td>OFAT 13조건 vs 전조합 432조건</td></tr>
+      <tr><td class="k">perturbation.axes</td><td>축 5개의 수준 목록</td><td>다음 슬라이드</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li><strong>recipe_id는 선택 항목이 아닙니다.</strong> 계약과 원본 metadata의 함수로 자동 산출되며, 입력계약이 같은 두 카드는 tensor를 공유합니다. PROPHECG(8유도)와 ECGFounder(12유도)는 계약이 다르므로 각자 tensor를 갖습니다.</li>
+    <li class="key">perturbation tensor는 <em>디스크에 쓰이지 않습니다.</em> 4단계 dataloader가 그때그때 적용합니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 6 ═══════════════ -->
+<section class="slide">
+  <h2>Perturbation 축 — 축을 눌러보세요</h2>
+  <figure id="axfig">
+    <div class="knobs five" id="axknobs">
+      <button class="knob" data-x="resample" aria-selected="true">resample<small>주파수 저하</small></button>
+      <button class="knob" data-x="lead">lead_dropout<small>유도 결손</small></button>
+      <button class="knob" data-x="duration">duration<small>기록 길이</small></button>
+      <button class="knob" data-x="amp">amplitude_scale<small>이득 오류</small></button>
+      <button class="knob" data-x="noise">noise<small>잡음</small></button>
+    </div>
+    <div class="box" id="axbox"></div>
+  </figure>
+  <p class="lede">축 수준은 <strong>계약 상대적</strong>입니다. 계약보다 높은 수준은 아무것도 제거하지 않아
+    baseline과 비트 단위로 같은 셀이 되므로 <code>check_grid_against_contract</code>가 거부합니다.</p>
+</section>
+
+<!-- ═══════════════ 7 ═══════════════ -->
+<section class="slide">
+  <h2>4단계 Models — arm 선언</h2>
+  <figure class="code">
+    <div class="hint">study.yaml · models</div>
+<pre><span class="c"># spec §2.5의 네 arm. 이름이 아니라 카드의 model_id를 쓴다.</span>
+<span class="k">models</span>:
+  <span class="k">registry</span>: registry/models        <span class="c"># 필수</span>
+  <span class="k">batch_size</span>: 64                   <span class="c"># 결과에 영향 없음</span>
+  <span class="k">label_def</span>: primary               <span class="c"># primary | sens1 | sens2 | sens3</span>
+  <span class="k">arms</span>:
+    - <span class="k">model_id</span>: prophecg-stemi
+      <span class="k">training_mode</span>: inference_only
+    - <span class="k">model_id</span>: prophecg-stemi
+      <span class="k">training_mode</span>: linear_probe    <span class="h"># feature_layer 필요</span>
+    - <span class="k">model_id</span>: ecgfounder
+      <span class="k">training_mode</span>: linear_probe
+      <span class="k">hparams</span>: {<span class="k">epochs</span>: 200, <span class="k">lr</span>: 0.01, <span class="k">seed</span>: 7}
+    - <span class="k">model_id</span>: ecgfounder
+      <span class="k">training_mode</span>: full_finetune
+      <span class="k">hparam_grid</span>:                   <span class="c"># 내부 CV로 선택</span>
+        <span class="k">lr</span>: [0.00001, 0.00003]
+      <span class="k">hparams</span>: <span class="c"># hparams 와 hparam_grid 는 함께 쓸 수 없다</span>
+</pre>
+  </figure>
+  <ul>
+    <li><code>partial_unfreeze</code>는 <code>unfreeze_groups</code>가 <strong>필수</strong>입니다. 무엇을 녹였는지가 기록이어야 하기 때문입니다.</li>
+    <li>같은 <code>(model_id, training_mode, label_def)</code> 조합을 두 번 쓸 수 없습니다 — 같은 run_key를 두 번 쓰게 됩니다.</li>
+    <li class="key"><code>early_stopping_fold</code>를 적지 않으면 자동으로 잡힙니다. 적으면 그 fold가 조기종료 전용이 됩니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 8 ═══════════════ -->
+<section class="slide">
+  <h2>hyperparameter 기본값</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th>키</th><th>linear_probe</th><th>partial_unfreeze</th><th>full_finetune</th></tr>
+      <tr><td class="k">epochs</td><td>200</td><td>20</td><td>20</td></tr>
+      <tr><td class="k">lr</td><td>1e-2</td><td>1e-4</td><td>1e-5</td></tr>
+      <tr><td class="k">weight_decay</td><td colspan="3">1e-4 &nbsp;<span style="color:var(--ink-3)">— 세 모드 공통, decoupled (Loshchilov &amp; Hutter 2019)</span></td></tr>
+      <tr><td class="k">patience</td><td>20</td><td>3</td><td>3</td></tr>
+      <tr><td class="k">pos_weight</td><td colspan="3">1.0 (기본) 또는 <code>balanced</code></td></tr>
+      <tr><td class="k">early_stopping_metric</td><td colspan="3">auroc (기본) 또는 loss</td></tr>
+      <tr><td class="k">seed</td><td>불필요</td><td colspan="2" class="warn">필수 — 없으면 거부</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key">학습률이 모드마다 3자리씩 다른 이유: 얼어붙은 backbone 위의 head는 큰 학습률을 견디지만, 사전학습된 backbone은 견디지 못합니다 <em>(Howard &amp; Ruder 2018)</em>.</li>
+    <li><code>pos_weight</code> 기본이 1.0인 이유: 재가중은 예측 위험도를 부풀려 calibration을 망칩니다. STEMI 미검출의 비대칭 비용은 <strong>threshold 정책</strong>이 담당합니다.</li>
+    <li>모르는 키를 쓰면 <strong>거부</strong>합니다. 조용히 무시하면 grid의 두 후보가 실제로는 같은 설정이 됩니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 9 ═══════════════ -->
+<section class="slide">
+  <h2>운영 임계값 정책 3종</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th>정책</th><th>정의</th><th>언제</th></tr>
+      <tr><td class="k">refit_sens95</td>
+          <td>민감도 ≥ 0.95를 만족하는 것 중 특이도 최대. <code>sensitivity_target</code>으로 조정</td>
+          <td class="ok">기본(primary). STEMI 미검출 비용이 비대칭이므로</td></tr>
+      <tr><td class="k">refit_youden</td><td>민감도 + 특이도 − 1 최대</td>
+          <td>참고용. 두 오류를 <b>동등하게</b> 취급하므로 이 질환에는 부적절</td></tr>
+      <tr><td class="k">legacy</td><td>카드가 선언한 값을 그대로</td>
+          <td>PROPHECG의 0.0768. 다른 코호트(PTB-XL)에서 나온 값</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key"><strong>임계값은 절대 test에서 고르지 않습니다.</strong> <code>SplitScores</code>가 split 이름을 들고 다니고, refit 함수는 dev가 아니면 거부합니다 — 호출자가 기억할 필요가 없습니다.</li>
+    <li>4단계가 고른 임계값을 <strong>5·6단계가 함께 씁니다.</strong> 6단계의 "임계값 근처 사례"가 5단계가 보고한 것과 다른 결정 규칙의 경계이면 의미가 없기 때문입니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 10 ═══════════════ -->
+<section class="slide">
+  <h2>5단계 Evaluation 옵션</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th>키</th><th>기본</th><th>의미</th></tr>
+      <tr><td class="k">subgroups</td><td>[]</td><td>슬라이스할 컬럼 이름. 새 추론이 필요 없는 <b>report 축</b></td></tr>
+      <tr><td class="k">outcomes</td><td>{stemi: null}</td><td>다른 결과(30일 사망, 24h PCI)를 같은 예측에 join</td></tr>
+      <tr><td class="k">comparisons</td><td>[]</td><td>arm 쌍. <code>confirmatory: true</code>로 사전 지정 표시</td></tr>
+      <tr><td class="k">bootstrap_replicates</td><td>2000</td><td><b>person 단위</b> stratified bootstrap</td></tr>
+      <tr><td class="k">decision_thresholds</td><td>0.01 · 0.02 · 0.05 · 0.10</td><td>net benefit을 계산할 지점</td></tr>
+      <tr><td class="k">min_events</td><td>10</td><td>이하면 계산은 하되 <code>suppressed=true</code></td></tr>
+      <tr><td class="k">calibration_knots</td><td>4</td><td>flexible calibration curve (Harrell 배치)</td></tr>
+      <tr><td class="k">figures</td><td>true</td><td>STARD flow · ROC/PR · calibration · decision curve · 열화 곡선 · forest · 순위 역전</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key">모델 간 비교는 <em>DeLong이 아니라 paired bootstrap of difference</em>입니다. 환자당 ECG가 여러 개라 clustered 데이터이고, DeLong은 그 경우 부적절합니다.</li>
+    <li>산출물은 long format이라 축이 늘어도 스키마가 변하지 않습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 11 ═══════════════ -->
+<section class="slide">
+  <h2>6단계 Misclassification — selector를 눌러보세요</h2>
+  <figure id="selfig">
+    <div class="knobs" id="selknobs">
+      <button class="knob" data-s="error" aria-selected="true">error<small>FP / FN 상위</small></button>
+      <button class="knob" data-s="boundary">boundary<small>임계값 근처</small></button>
+      <button class="knob" data-s="contrast">contrast<small>두 패턴 불일치</small></button>
+      <button class="knob" data-s="instability">instability<small>반복 간 분산</small></button>
+    </div>
+    <div class="code" id="selcode" style="min-height:180px"></div>
+    <div class="box" id="selbox" style="margin-top:12px; min-height:120px"></div>
+  </figure>
+</section>
+
+<!-- ═══════════════ 12 ═══════════════ -->
+<section class="slide">
+  <h2>축 하나가 모델마다 다른 뜻인 경우</h2>
+  <p class="lede">perturbation은 <strong>계약이 적용된 뒤의 tensor</strong>에 적용됩니다.
+    그래서 같은 축 수준이 두 모델에 서로 다른 손상을 의미할 수 있습니다.
+    결과표에 반드시 함께 적어야 합니다.</p>
+  <figure class="scroll">
+    <table>
+      <tr><th>축 수준</th><th>PROPHECG (8유도, scaling none)</th><th>ECGFounder (12유도, z-score)</th></tr>
+      <tr><td class="k">amplitude_scale 0.5</td>
+          <td class="warn">실제 gain 오류 — 입력이 절반이 된다</td>
+          <td class="no">효과 없음 — 모델 자신의 z-score가 되돌린다</td></tr>
+      <tr><td class="k">lead_dropout limb_only</td>
+          <td class="warn">2유도만 남음 (I, II)</td>
+          <td>6유도 남음</td></tr>
+      <tr><td class="k">lead_dropout precordial_only</td>
+          <td>6유도 남음 (V1–V6)</td><td>6유도 남음</td></tr>
+      <tr><td class="k">noise powerline</td>
+          <td colspan="2">전원 주파수는 <b>건물의 사실</b>이라 기본값이 없다. 선언해야 한다</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key"><code>amplitude_scale</code>이 정규화 모델에 무효인 것은 <em>버그가 아니라 옳은 답</em>입니다. 실제로 잘못 보정된 ECG도 모델 자신의 정규화를 통과하므로, 재정규화하지 않으면 배포 환경에서 일어날 수 없는 실패를 보고하게 됩니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 13 ═══════════════ -->
+<section class="slide">
+  <h2>기본값이 없는 것 — 반드시 선언</h2>
+  <p class="lede">코드가 알 수 없는 사실에는 기본값을 두지 않았습니다.
+    <strong>틀린 기본값은 없는 것보다 나쁩니다</strong> — 칸을 채우고 보고까지 되기 때문입니다.</p>
+  <figure class="scroll">
+    <table>
+      <tr><th>항목</th><th>왜 코드가 모르는가</th><th>어디에 쓰나</th></tr>
+      <tr><td class="k">전원 주파수</td>
+          <td>건물의 사실. MIMIC은 보스턴, 한국도 60 Hz — 50 Hz는 두 곳 어느 장비도 만들 수 없다</td>
+          <td class="k">preprocess.perturbation.axes.noise:<br>[..., powerline_60hz, ...]</td></tr>
+      <tr><td class="k">attribution baseline</td>
+          <td>IG는 baseline에 <b>상대적</b>. ECG에서 0 baseline은 무신호가 아니라 <b>asystole</b>이다</td>
+          <td class="k">misclassify.attribution.baseline</td></tr>
+      <tr><td class="k">filter order</td>
+          <td>모델 자신의 전처리. 파형을 바꾸고 하류에서 탐지 불가</td>
+          <td class="k">ModelCard input_contract.filters[].order</td></tr>
+      <tr><td class="k">seed</td>
+          <td>재현성. fine-tuning은 난수를 쓴다</td>
+          <td class="k">--seed (fine-tune 모드에서 필수)</td></tr>
+      <tr><td class="k">instability의 over</td>
+          <td>무엇이 변해도 되는지. 추론하면 perturbation 민감도가 "fold 불안정"으로 보고된다</td>
+          <td class="k">misclassify.selectors[].over</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li class="key">같은 이유로, <code>hparams</code>에 <em>모르는 키를 쓰면 거부</em>합니다. 조용히 무시하면 서로 다르다고 기록된 두 grid 후보가 실제로는 같아집니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 14 ═══════════════ -->
+<section class="slide">
+  <h2>지금 무엇이 되고 무엇이 남았는가</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th></th><th>상태</th><th>비고</th></tr>
+      <tr><td class="k">3 Preprocess</td><td class="ok">실행 가능</td><td>합성 코호트로 검증됨</td></tr>
+      <tr><td class="k">4 Models</td><td class="ok">실행 가능</td><td>학습 모드 4종 · threshold 3종 · leakage/contamination gate</td></tr>
+      <tr><td class="k">5 Evaluation</td><td class="ok">실행 가능</td><td>범주 4 (interpretation)는 스키마 자리만</td></tr>
+      <tr><td class="k">6 Misclassification</td><td class="ok">실행 가능</td><td>selector 4종 · 사례 그림 · review 병합 · IG attribution</td></tr>
+      <tr><td class="k">1–2 Retrieve/Profile</td><td class="no">차단</td><td>Data4Life 설치 + MI-CDM 접근</td></tr>
+      <tr><td class="k">PROPHECG linear_probe</td><td class="no">차단</td><td>카드의 <code>feature_layer</code>가 null. H5에서 penultimate layer 이름만 확인하면 됨</td></tr>
+      <tr><td class="k">DICOM-MIVA 검증</td><td class="warn">미실행</td><td>torch 4 · keras 5 · golden 2 — 아직 한 번도 돌린 적 없음</td></tr>
+    </table>
+  </figure>
+  <p class="meta">598 passed · 11 skipped &nbsp;|&nbsp; 실행 코드에 모델 이름 토큰 0개
+    (예외: ECGFounder 공식 체크아웃의 <code>Net1D</code> 생성자 1곳)</p>
+</section>
+
+</div>
+
+<script>
+/* ───────── arm 행렬 ───────── */
+var ARM = {
+  "p-inf":  ["PROPHECG · inference_only",
+    "카드가 <b>softmax</b>와 <b>positive_index 1</b>을 선언하므로 체크포인트가 직접 확률을 냅니다. 멤버 5개의 확률을 <b>mean_probability</b>로 평균합니다. 학습이 전혀 없으므로 seed도 필요 없습니다.",
+    "spec §2.5의 arm 1 — 실행 가능"],
+  "p-lin":  ["PROPHECG · linear_probe",
+    "카드의 <b>feature_layer가 null</b>이라 표현을 꺼낼 수 없습니다. H5의 model.summary()에서 penultimate layer 이름을 확인해 카드에 적으면 <i>코드 변경 없이</i> 열립니다. probe 방식은 결정됐습니다 — 멤버마다 head를 학습하고 카드가 선언한 대로 확률 수준에서 평균합니다.",
+    "spec §2.5의 arm 2 — 현재 차단"],
+  "p-par":  ["PROPHECG · partial_unfreeze",
+    "카드가 이 모드를 선언하지 않았고, keras adapter도 backbone으로의 역전파를 구현하지 않았습니다. 필요로 하는 arm이 없습니다.",
+    "계획에 없음"],
+  "p-full": ["PROPHECG · full_finetune",
+    "카드는 선언하지만 <b>실행할 수 없습니다.</b> archived Keras 2.7 런타임은 카드가 적은 대로 CPU 전용이라, 5-member ensemble을 병원 규모 dev split으로 역전파하는 것이 가용 하드웨어에서 불가능합니다. 카드의 선언을 현실에 맞출지 판단이 필요합니다.",
+    "선언과 구현 불일치"],
+  "e-inf":  ["ECGFounder · inference_only",
+    "카드의 <b>positive_index가 null</b>입니다 — 150개 출력 중 어느 것이 STEMI인지 체크포인트가 말하지 않습니다. 그래서 이 모델은 반드시 head를 먼저 맞춰야 합니다. 카드가 그렇게 선언하므로 코드에 모델 이름을 쓸 필요가 없습니다.",
+    "카드가 지원하지 않음"],
+  "e-lin":  ["ECGFounder · linear_probe",
+    "<b>feature_layer: backbone</b>에서 표현을 꺼내 NumPy 로지스틱 head 하나를 학습합니다. backbone이 얼어 있으므로 표현은 epoch마다 변하지 않고, 신호를 <i>한 번만</i> 읽습니다.",
+    "spec §2.5의 arm 3 — 실행 가능"],
+  "e-par":  ["ECGFounder · partial_unfreeze",
+    "지정한 child만 학습하고 나머지는 eval에 둡니다. 학습하지 않는 데이터로 BatchNorm running stat이 갱신되면 안 되기 때문입니다. <b>unfreeze_groups 선언이 필수</b>이고, seed도 필수입니다.",
+    "가능 — 계획에는 없음"],
+  "e-full": ["ECGFounder · full_finetune",
+    "전체 파라미터를 학습합니다. module을 <b>deepcopy</b>하므로 내부 CV fold마다 새 handle이 만들어지고, 한 fold의 가중치가 다음 fold 추정으로 새지 않습니다. 학습 후 head는 선형이므로 torch 밖으로 꺼내 추론 경로를 하나로 유지합니다.",
+    "spec §2.5의 arm 4 — 실행 가능"]
+};
+var armbox = document.getElementById('armbox');
+var cells = [].slice.call(document.querySelectorAll('.cell'));
+function armShow(k) {
+  cells.forEach(function (c) { c.setAttribute('aria-selected', String(c.dataset.a === k)); });
+  var v = ARM[k];
+  armbox.innerHTML = '<div class="lead">' + v[0] + '</div><div class="body">' + v[1] +
+    '</div><div class="out">' + v[2] + '</div>';
+}
+if (armbox) {
+  armbox.innerHTML = '<div class="ph">칸을 누르면 왜 되는지, 왜 안 되는지 나옵니다.</div>';
+  cells.forEach(function (c) {
+    c.addEventListener('click', function (e) { e.stopPropagation(); armShow(c.dataset.a); });
+  });
+}
+
+/* ───────── perturbation 축 ───────── */
+var AX = {
+  resample: ["resample — 500 · 250 · 125 · 100 Hz",
+    "목표 주파수로 낮췄다가 계약 주파수로 되돌립니다. 되돌리기 때문에 tensor 모양은 항상 계약 그대로입니다. <b>첫 수준은 계약의 주파수여야 합니다</b> — 계약보다 낮으면 다른 축을 재는 셀까지 함께 다운샘플되고, 손실이 엉뚱한 축에 귀속됩니다.",
+    "resample-250 · resample-125 · resample-100"],
+  lead: ["lead_dropout — none · drop_V3V4 · precordial_only · limb_only",
+    "해당 유도를 <b>0으로 만들되 제거하지는 않습니다</b> — 모양이 계약과 같아야 하기 때문입니다. 수준은 12유도 표준으로 정의되고 계약 적용 <i>후</i>에 적용되므로, 8유도 모델에서는 남는 유도 수가 다릅니다.",
+    "leaddrop-drop_V3V4 · leaddrop-precordial_only · leaddrop-limb_only"],
+  duration: ["duration — 10 · 5 · 2.5 s",
+    "앞쪽 n초만 남기고 계약 길이까지 0으로 채웁니다. resample과 마찬가지로 첫 수준이 계약의 길이여야 합니다.",
+    "duration-5 · duration-2.5"],
+  amp: ["amplitude_scale — 1.0 · 0.5 · 2.0",
+    "전체 이득을 곱합니다. <b>계약의 scaling이 그 뒤에 다시 적용됩니다.</b> 그래서 scaling: none인 PROPHECG에는 실제 gain 오류이고, global_zscore인 ECGFounder에는 정확히 아무 효과가 없습니다.",
+    "amplitude-0.5 · amplitude-2.0"],
+  noise: ["noise — none · baseline_wander · emg (+ powerline은 선언 필요)",
+    "잡음은 <b>가장 마지막</b>에 더합니다. resample 왕복보다 먼저 더하면 안티에일리어싱 필터가 주입한 아티팩트를 부분적으로 지워버리기 때문입니다. 전원 잡음 주파수는 <i>수준 이름에서 파싱</i>하므로 powerline_60hz를 쓰는 데 코드 변경이 필요 없습니다.",
+    "noise-baseline_wander · noise-emg · (noise-powerline_60hz)"]
+};
+var axbox = document.getElementById('axbox');
+var axknobs = [].slice.call(document.querySelectorAll('#axknobs .knob'));
+function axShow(k) {
+  axknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.x === k)); });
+  var v = AX[k];
+  axbox.innerHTML = '<div class="lead">' + v[0] + '</div><div class="body">' + v[1] +
+    '</div><div class="out">' + v[2] + '</div>';
+}
+if (axbox) {
+  axknobs.forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); axShow(b.dataset.x); });
+  });
+  axShow('resample');
+}
+
+/* ───────── selector ───────── */
+var SEL = {
+  error: [
+'<span class="k">selectors</span>:\n  - <span class="k">name</span>: top_errors\n    <span class="k">type</span>: error\n    <span class="k">pattern</span>:                 <span class="c"># run_key 축의 부분집합</span>\n      <span class="k">model_id</span>: ecgfounder\n      <span class="k">training_mode</span>: linear_probe\n      <span class="k">perturbation_id</span>: baseline\n      <span class="k">label_def</span>: primary\n    <span class="k">k</span>: 20',
+    "reference run의 <b>FP 상위 k</b>(확률 내림차순)와 <b>FN 하위 k</b>(확률 오름차순)를 뽑습니다. 임계값은 5단계가 보고한 그 값입니다.",
+    "score_name = prob"],
+  boundary: [
+'<span class="k">selectors</span>:\n  - <span class="k">name</span>: near_threshold\n    <span class="k">type</span>: boundary\n    <span class="k">pattern</span>: {<span class="k">model_id</span>: ecgfounder, ...}\n    <span class="k">epsilon</span>: 0.05        <span class="c"># 필수 — 없으면 거부</span>\n    <span class="k">k</span>: 20',
+    "<code>abs(prob − threshold) &lt; ε</code>. 결정이 아슬아슬했던 사례입니다.",
+    "score_name = prob_minus_threshold"],
+  contrast: [
+'<span class="k">selectors</span>:\n  - <span class="k">name</span>: model_disagreement\n    <span class="k">type</span>: contrast\n    <span class="k">a</span>: {<span class="k">model_id</span>: ecgfounder,     ...}\n    <span class="k">b</span>: {<span class="k">model_id</span>: prophecg-stemi, ...}\n    <span class="k">criterion</span>: prediction_flip\n    <span class="h">#  prediction_flip | truth_flip</span>\n    <span class="h">#  outcome_flip    | delta_prob</span>\n    <span class="k">tau</span>: 0.2            <span class="c"># 크기 하한(선택)</span>',
+    "<b>축을 특정하지 않습니다.</b> a와 b를 <code>model_id</code>로 나누면 모델 불일치, <code>training_mode</code>로 나누면 fine-tuning이 바꾼 것, <code>perturbation_id</code>로 나누면 500 Hz에서 맞고 125 Hz에서 뒤집힌 사례, <code>label_def</code>로 나누면 정의에 따라 정답이 바뀌는 사례 — <i>전부 같은 코드</i>입니다.",
+    "spec §4.6의 label_flip은 label_def 축에서 모호해 넷으로 나눴습니다"],
+  instability: [
+'<span class="k">selectors</span>:\n  - <span class="k">name</span>: unstable\n    <span class="k">type</span>: instability\n    <span class="k">pattern</span>: {<span class="k">model_id</span>: ecgfounder, ...}\n    <span class="k">over</span>: [seed]         <span class="c"># 필수 — 무엇이 변해도 되는가</span>\n    <span class="k">tau</span>: 0.1\n    <span class="k">k</span>: 20',
+    "같은 record의 반복 예측 사이 <code>prob_std &gt; τ</code>. <b>over를 선언해야 합니다</b> — 비어 있는 축에서 추론하면 <code>perturbation_id</code>를 고정하는 걸 잊은 study가 perturbation 민감도를 \"fold 불안정\"으로 보고하게 됩니다.",
+    "한 번의 models 실행으로는 비어 있습니다 — seed가 다른 두 run의 예측이 필요합니다"]
+};
+var selcode = document.getElementById('selcode');
+var selbox = document.getElementById('selbox');
+var selknobs = [].slice.call(document.querySelectorAll('#selknobs .knob'));
+function selShow(k) {
+  selknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.s === k)); });
+  var v = SEL[k];
+  selcode.innerHTML = '<div class="hint">study.yaml · misclassify</div><pre>' + v[0] + '</pre>';
+  selbox.innerHTML = '<div class="body">' + v[1] + '</div><div class="out">' + v[2] + '</div>';
+}
+if (selcode) {
+  selknobs.forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); selShow(b.dataset.s); });
+  });
+  selShow('error');
+}
+
+/* ───────── 덱 ───────── */
+var slides = [].slice.call(document.querySelectorAll('.slide'));
+var i = 0, tot = slides.length;
+document.getElementById('tot').textContent = tot;
+function show(n) {
+  i = Math.max(0, Math.min(tot - 1, n));
+  slides.forEach(function (s, k) { s.classList.toggle('active', k === i); });
+  document.getElementById('cur').textContent = i + 1;
+  document.getElementById('prog').style.width = ((i + 1) / tot * 100) + '%';
+  history.replaceState(null, '', '#' + (i + 1));
+  slides[i].scrollTop = 0;
+}
+document.addEventListener('keydown', function (e) {
+  if (e.target.closest && e.target.closest('.knob, .cell, a') && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+  else if (e.key === 'Home') show(0); else if (e.key === 'End') show(tot - 1);
+});
+document.getElementById('deck').addEventListener('click', function (e) {
+  if (e.target.closest('button, a, #armfig, #axfig, #selfig')) return;
+  show(i + (e.clientX > window.innerWidth / 2 ? 1 : -1));
+});
+document.getElementById('theme').addEventListener('click', function (e) {
+  e.stopPropagation();
+  var r = document.documentElement;
+  var d = matchMedia('(prefers-color-scheme: dark)').matches;
+  var c = r.getAttribute('data-theme') || (d ? 'dark' : 'light');
+  r.setAttribute('data-theme', c === 'dark' ? 'light' : 'dark');
+});
+var st = parseInt((location.hash || '#1').slice(1), 10);
+show(isNaN(st) ? 0 : st - 1);
+</script>
+
+</body>
+</html>
