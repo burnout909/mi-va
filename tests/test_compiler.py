@@ -157,3 +157,28 @@ def test_compiled_chain_length_prediction_agrees_with_application():
         meta = mimic_source(fs=fs, n=n)
         out = compile_recipe(PROPHECG, meta).apply(make_signal(meta))
         assert out.n_samples == PROPHECG.n_samples, (fs, n, out.n_samples)
+
+
+def test_unconvertible_rate_raises_rate_unsupported():
+    with pytest.raises(CompileError) as excinfo:
+        compile_recipe(PROPHECG, mimic_source(fs=1024.7, n=10247))
+    assert excinfo.value.reason_code == "rate_unsupported"
+
+
+def test_irrational_rate_raises_rate_unsupported():
+    with pytest.raises(CompileError) as excinfo:
+        compile_recipe(PROPHECG, mimic_source(fs=500.0000001, n=5000))
+    assert excinfo.value.reason_code == "rate_unsupported"
+
+
+def test_genuine_upsample_still_reports_upsample_required():
+    # Ordering guard: a low-rate source must report the rate policy, not the
+    # conversion-feasibility failure.
+    with pytest.raises(CompileError) as excinfo:
+        compile_recipe(PROPHECG, mimic_source(fs=250.0, n=2500))
+    assert excinfo.value.reason_code == "upsample_required"
+
+
+def test_unknown_pad_policy_is_rejected_at_compile_time():
+    with pytest.raises(ValueError, match="pad_policy"):
+        compile_recipe(PROPHECG, mimic_source(n=2500), pad_policy="constant")

@@ -14,7 +14,7 @@
 - **환경 2종**: `torch` = Python 3.10.20 / PyTorch 2.13.0+cu130. `keras27` = Python 3.9.25 / TensorFlow CPU 2.7.4 / Keras 2.7.0. core 코드는 Python 3.9 문법 호환이어야 한다(`X | Y` 타입 표기 금지, `typing.Optional`/`Union` 사용).
 - **정규 내부 신호 표현**: `numpy.ndarray`, shape `(n_leads, n_samples)`, `dtype=float32`, 단위 `mV`.
 - **op 적용 순서 고정**: `scale_unit → filters → resample → select/reconstruct_leads → crop/pad → normalize`. layout 변환은 adapter가 담당한다.
-- **reason_code 어휘 고정**: `lead_unavailable`, `upsample_required`, `duration_short`, `unit_missing`. 새 코드를 임의로 추가하지 않는다.
+- **reason_code 어휘 고정**: `lead_unavailable`, `upsample_required`, `duration_short`, `unit_missing`, `rate_unsupported`. 새 코드를 임의로 추가하지 않는다.
 - **ModelCard**: RSNA ATLAS ROADMAP 필드 + `x-mival` 확장. `x-mival.pretraining_corpora`는 **필수**다.
 - **결정론**: op에 난수를 쓰지 않는다. 합성 신호는 RNG 없이 닫힌 수식으로 생성한다.
 - **weights 경로**: `/data/mi-val/models/ecgfounder/12_lead_ECGFounder.pth`, `/data/mi-val/models/prophecg-stemi/*_bestmodel.h5` (DICOM-MIVA 인스턴스). weights가 필요한 테스트는 `@pytest.mark.weights`로 표시하고 파일 부재 시 skip한다.

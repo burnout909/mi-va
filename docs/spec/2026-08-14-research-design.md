@@ -349,6 +349,7 @@ recipe = compile(model.input_contract, source_metadata)
 | source fs < target fs | 기본 거부(`allow_upsample: false`), 명시 허용 시만 통과 | `upsample_required` |
 | duration 부족 | `pad_policy` 따름, 기본 제외 | `duration_short` |
 | unit/sensitivity 미기재 | 제외 (default 추정 금지) | `unit_missing` |
+| source fs를 target fs로 정확히 변환 불가(정확한 유리수 비가 없거나, polyphase factor가 한계를 초과) | 제외 | `rate_unsupported` |
 
 마지막 항목은 decisions의 Preprocess Open Question 3("필수 metadata가 없을 때 default를 쓸 것인가 record를 제외할 것인가")에 대한 답이다. 추정한 unit은 조용히 틀리며, 틀린 것을 검증할 방법이 없다.
 

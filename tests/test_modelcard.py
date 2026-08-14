@@ -27,7 +27,13 @@ def test_input_contract_computes_sample_count():
 
 def test_reason_codes_are_the_agreed_vocabulary():
     assert REASON_CODES == frozenset(
-        {"lead_unavailable", "upsample_required", "duration_short", "unit_missing"}
+        {
+            "lead_unavailable",
+            "upsample_required",
+            "duration_short",
+            "unit_missing",
+            "rate_unsupported",
+        }
     )
 
 
@@ -87,3 +93,54 @@ def test_card_without_top_level_name_is_rejected(tmp_path):
     bad.write_text(json.dumps(body))
     with pytest.raises(ValueError, match="Name"):
         load_card(bad)
+
+
+def test_contract_rejects_unsupported_unit():
+    with pytest.raises(ValueError, match="unit"):
+        InputContract.from_dict(
+            {
+                "leads": ["I", "II"],
+                "sampling_rate_hz": 500,
+                "duration_s": 10,
+                "unit": "V",
+                "scaling": "none",
+                "layout": "lead_time",
+                "dtype": "float32",
+            }
+        )
+
+
+def test_contract_rejects_unsupported_scaling():
+    with pytest.raises(ValueError, match="scaling"):
+        InputContract.from_dict(
+            {
+                "leads": ["I", "II"],
+                "sampling_rate_hz": 500,
+                "duration_s": 10,
+                "unit": "mV",
+                "scaling": "minmax",
+                "layout": "lead_time",
+                "dtype": "float32",
+            }
+        )
+
+
+def test_contract_rejects_unsupported_filter_kind():
+    with pytest.raises(ValueError, match="bandpass"):
+        InputContract.from_dict(
+            {
+                "leads": ["I", "II"],
+                "sampling_rate_hz": 500,
+                "duration_s": 10,
+                "unit": "mV",
+                "scaling": "none",
+                "layout": "lead_time",
+                "dtype": "float32",
+                "filters": [{"kind": "bandpass", "cutoff_hz": 40}],
+            }
+        )
+
+
+def test_both_registry_cards_still_load():
+    cards = load_registry(REGISTRY)
+    assert set(cards) == {"ecgfounder", "prophecg-stemi"}

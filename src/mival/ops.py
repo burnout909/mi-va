@@ -123,6 +123,9 @@ class Crop(Op):
         )
 
 
+SUPPORTED_PAD_MODES = frozenset({"zero"})
+
+
 @dataclass(frozen=True)
 class Pad(Op):
     n_samples: int
@@ -140,7 +143,7 @@ class Pad(Op):
                 f"cannot pad to {self.n_samples}: source is longer "
                 f"({sig.n_samples} samples)"
             )
-        if self.mode != "zero":
+        if self.mode not in SUPPORTED_PAD_MODES:
             raise ValueError(f"unknown pad mode: {self.mode}")
         deficit = self.n_samples - sig.n_samples
         before, after = (0, deficit) if self.anchor == "start" else (deficit, 0)
@@ -235,6 +238,9 @@ class ReconstructLeads(Op):
         )
 
 
+SUPPORTED_SCALINGS = frozenset({"none", "global_zscore", "per_lead_zscore"})
+
+
 @dataclass(frozen=True)
 class Normalize(Op):
     method: str
@@ -245,6 +251,8 @@ class Normalize(Op):
         return {"method": self.method}
 
     def apply(self, sig: Signal) -> Signal:
+        if self.method not in SUPPORTED_SCALINGS:
+            raise ValueError(f"unknown normalization method: {self.method}")
         if self.method == "none":
             return sig
         if self.method == "global_zscore":
@@ -252,19 +260,20 @@ class Normalize(Op):
             std = sig.data.std()
             std = std if std > 0 else 1.0
             data = (sig.data - mean) / std
-        elif self.method == "per_lead_zscore":
+        else:
             mean = sig.data.mean(axis=1, keepdims=True)
             std = sig.data.std(axis=1, keepdims=True)
             std = np.where(std > 0, std, 1.0)
             data = (sig.data - mean) / std
-        else:
-            raise ValueError(f"unknown normalization method: {self.method}")
         return Signal(
             data=np.ascontiguousarray(data, dtype=np.float32),
             leads=sig.leads,
             sampling_rate_hz=sig.sampling_rate_hz,
             unit=sig.unit,
         )
+
+
+SUPPORTED_FILTER_KINDS = frozenset({"highpass", "lowpass", "notch"})
 
 
 @dataclass(frozen=True)
@@ -279,18 +288,18 @@ class BandFilter(Op):
         return {"kind": self.kind, "cutoff_hz": self.cutoff_hz, "order": self.order}
 
     def apply(self, sig: Signal) -> Signal:
+        if self.kind not in SUPPORTED_FILTER_KINDS:
+            raise ValueError(f"unknown filter kind: {self.kind}")
         nyquist = sig.sampling_rate_hz / 2.0
         if self.kind == "notch":
             quality = 30.0
             b, a = sps.iirnotch(self.cutoff_hz / nyquist, quality)
             filtered = sps.filtfilt(b, a, sig.data, axis=1)
-        elif self.kind in ("highpass", "lowpass"):
+        else:
             sos = sps.butter(
                 self.order, self.cutoff_hz / nyquist, btype=self.kind, output="sos"
             )
             filtered = sps.sosfiltfilt(sos, sig.data, axis=1)
-        else:
-            raise ValueError(f"unknown filter kind: {self.kind}")
         return Signal(
             data=np.ascontiguousarray(filtered, dtype=np.float32),
             leads=sig.leads,

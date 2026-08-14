@@ -21,6 +21,7 @@ from mival.ops import (
     Resample,
     ScaleUnit,
     SelectLeads,
+    SUPPORTED_PAD_MODES,
     SUPPORTED_UNITS,
     resampled_length,
 )
@@ -33,6 +34,13 @@ def compile_recipe(
     allow_upsample: bool = False,
     pad_policy: str = "reject",
 ) -> OpChain:
+    valid_pad_policies = {"reject"} | SUPPORTED_PAD_MODES
+    if pad_policy not in valid_pad_policies:
+        raise ValueError(
+            f"unsupported pad_policy {pad_policy!r}: "
+            f"must be one of {sorted(valid_pad_policies)}"
+        )
+
     ops: List[Op] = []
 
     # 1. unit. An unknown unit is never guessed: a silently wrong amplitude
@@ -69,9 +77,12 @@ def compile_recipe(
                 f"{contract.sampling_rate_hz} Hz",
             )
         ops.append(Resample(contract.sampling_rate_hz))
-    n_after_resample = resampled_length(
-        source.n_samples, source.sampling_rate_hz, contract.sampling_rate_hz
-    )
+    try:
+        n_after_resample = resampled_length(
+            source.n_samples, source.sampling_rate_hz, contract.sampling_rate_hz
+        )
+    except ValueError as exc:
+        raise CompileError("rate_unsupported", str(exc)) from exc
 
     # 4. leads
     available = set(source.leads)

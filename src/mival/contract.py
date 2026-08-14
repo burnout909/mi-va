@@ -5,8 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, Tuple
 
+from mival.ops import SUPPORTED_FILTER_KINDS, SUPPORTED_SCALINGS, SUPPORTED_UNITS
+
 REASON_CODES: FrozenSet[str] = frozenset(
-    {"lead_unavailable", "upsample_required", "duration_short", "unit_missing"}
+    {
+        "lead_unavailable",
+        "upsample_required",
+        "duration_short",
+        "unit_missing",
+        "rate_unsupported",
+    }
 )
 
 
@@ -42,13 +50,32 @@ class InputContract:
 
     @classmethod
     def from_dict(cls, body: Dict[str, Any]) -> "InputContract":
+        unit = str(body["unit"])
+        if unit not in SUPPORTED_UNITS:
+            raise ValueError(
+                f"unsupported unit {unit!r}: must be one of {sorted(SUPPORTED_UNITS)}"
+            )
+        scaling = str(body["scaling"])
+        if scaling not in SUPPORTED_SCALINGS:
+            raise ValueError(
+                f"unsupported scaling {scaling!r}: "
+                f"must be one of {sorted(SUPPORTED_SCALINGS)}"
+            )
+        filters = tuple(body.get("filters", ()))
+        for spec in filters:
+            kind = spec.get("kind")
+            if kind not in SUPPORTED_FILTER_KINDS:
+                raise ValueError(
+                    f"unsupported filter kind {kind!r}: "
+                    f"must be one of {sorted(SUPPORTED_FILTER_KINDS)}"
+                )
         return cls(
             leads=tuple(body["leads"]),
             sampling_rate_hz=float(body["sampling_rate_hz"]),
             duration_s=float(body["duration_s"]),
-            unit=str(body["unit"]),
-            scaling=str(body["scaling"]),
+            unit=unit,
+            scaling=scaling,
             layout=str(body["layout"]),
             dtype=str(body["dtype"]),
-            filters=tuple(body.get("filters", ())),
+            filters=filters,
         )

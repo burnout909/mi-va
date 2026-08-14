@@ -37,9 +37,13 @@ fi
   h5py==3.1.0 \
   numpy==1.22.4 \
   protobuf==3.19.6 \
-  wrapt==1.13.3
+  wrapt==1.13.3 \
+  scipy==1.9.3 \
+  pytest>=7
 
 "$ENV_ROOT/ecgfounder/bin/python" -c \
   'import torch; print("ECGFounder:", torch.__version__, torch.cuda.is_available())'
 CUDA_VISIBLE_DEVICES="" "$ENV_ROOT/prophecg/bin/python" -c \
   'import tensorflow as tf; print("PROPHECG:", tf.__version__)'
+CUDA_VISIBLE_DEVICES="" "$ENV_ROOT/prophecg/bin/python" -c \
+  'import scipy; print("PROPHECG scipy:", scipy.__version__)'
