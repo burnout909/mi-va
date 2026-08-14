@@ -31,6 +31,7 @@ import pytest
 
 pytest.importorskip("pyarrow")
 
+from mival.adapters.base import Adapter  # noqa: E402
 from mival.gates import LeakageError  # noqa: E402
 from mival.pipeline.manifest import RunManifest  # noqa: E402
 from mival.pipeline.runkey import RunKey  # noqa: E402
@@ -880,3 +881,87 @@ def test_the_wrapper_writes_the_contamination_block_and_the_test_contact_count(t
     written = {ref.path for ref in manifest.output_artifacts}
     assert "artifacts/train_log.jsonl" in written
     assert sum(path.startswith("artifacts/predictions/") for path in written) == 3
+
+
+# ---------------------------------------------------------------------------
+# the real Adapter.fit, driven by the stage
+# ---------------------------------------------------------------------------
+
+
+class ProbeHandle(FakeHandle):
+    """What a real adapter's handle looks like once a head has been fitted."""
+
+    def __init__(self, card, head=None, fit_record=None):
+        super().__init__(card)
+        self.head = head
+        self.fit_record = fit_record
+
+
+class ProbeAdapter(Adapter):
+    """A backend that inherits ``fit`` instead of faking it.
+
+    Every other test in this file supplies its own ``fit`` so that it can
+    assert on exactly what the stage handed the adapter. This one does the
+    opposite: it exercises the real ``linear_probe`` implementation end to end,
+    so the two halves of spec §4.4 — what the stage passes and what an adapter
+    does with it — are known to fit together.
+    """
+
+    name = "fake"
+
+    def load(self, card):
+        return ProbeHandle(card)
+
+    def features(self, handle, batch):
+        return np.asarray(batch, dtype=np.float64).reshape(len(batch), -1)
+
+    def forward(self, handle, batch):
+        return handle.head.probabilities(self.features(handle, batch))
+
+    def with_head(self, handle, head, record):
+        return ProbeHandle(handle.card, head=head, fit_record=dict(record))
+
+
+def test_a_linear_probe_arm_runs_the_real_fit(tmp_path):
+    result, ctx, _adapter = simple_run(
+        tmp_path, "linear_probe", adapter=ProbeAdapter(), hparams={"epochs": 40}
+    )
+    assert result.counts["out"] == len(ROWS)
+    probs = read_table(ctx.layout.artifact("predictions"))["prob"]
+    assert probs.between(0.0, 1.0).all()
+
+
+def test_the_train_log_records_what_the_adapter_actually_did(tmp_path):
+    """Spec §4.4 requires the full hyperparameters on record.
+
+    ``hparams`` alone holds only what the study asked for; the epochs the fit
+    stopped at and the defaults the adapter filled in live in ``fit_record``.
+    """
+    _result, ctx, _adapter = simple_run(
+        tmp_path, "linear_probe", adapter=ProbeAdapter(), hparams={"epochs": 40}
+    )
+    training = train_log(ctx)[0]["training"]
+    record = training["fit_record"]
+    assert record["mode"] == "linear_probe"
+    assert record["hparams"]["epochs"] == 40
+    assert record["hparams"]["pos_weight"] == 1.0
+    assert record["n_train"] == 4  # dev fold 0; fold 1 is reserved for stopping
+    assert record["n_validation"] == 4
+    assert record["best_epoch"] is not None
+
+
+def test_the_head_is_refit_per_inner_cv_fold(tmp_path):
+    """Each fold's held-out probabilities must come from a fold-specific head.
+
+    A fit that mutated the loaded handle instead of returning a new one would
+    leak fold 0's head into fold 1's estimate, and the out-of-fold dev
+    probabilities that the threshold refit depends on would no longer be out of
+    fold.
+    """
+    _result, ctx, _adapter = simple_run(
+        tmp_path, "linear_probe", adapter=ProbeAdapter(), hparams={"epochs": 40}
+    )
+    internal = train_log(ctx)[0]["training"]["internal_cv"]
+    assert internal["folds"] == [0, 1]
+    assert internal["early_stopping_fold"] == 1
+    assert internal["final_fit_n"] == 4

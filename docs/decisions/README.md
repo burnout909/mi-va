@@ -94,6 +94,31 @@ softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
    엇갈리면 `in != out + excluded`가 된다. Preprocess stage가 경고를 내지만
    Figure 1의 계수 규약은 사람이 정해야 한다.
 
+### Models (adapter `fit()` 구현에서 제기됨)
+
+1. PROPHECG의 `feature_layer`는 무엇인가?
+   카드에 `null`이라 `features()`가 동작하지 않고, 따라서 spec §2.5의
+   "PROPHECG head-retrained (`linear_probe`)" arm이 실행되지 않는다. 이 arm은
+   ECGFounder linear-probe와의 **대칭 비교**를 위해 존재하므로, 빠지면
+   confirmatory 비교 2쌍 중 하나가 사라진다. H5의 `model.summary()`를 확인해
+   penultimate layer 이름을 카드에 적으면 코드 변경 없이 해결된다.
+
+2. 5-member ensemble을 어떻게 linear-probe할 것인가?
+   `inference_only` arm은 5개 멤버의 확률을 평균한다. 독립 학습된 멤버들의
+   표현은 좌표계를 공유하지 않으므로 평균이 무의미하고, 멤버 0만 probe하면
+   같은 모델의 두 arm이 서로 다른 용량을 갖게 되어 "대칭" 비교가 성립하지
+   않는다. keras adapter는 현재 이 경우를 **거부한다**(추측하지 않는다).
+   선택지는 (a) 멤버마다 head를 학습하고 카드가 선언한 방식으로 확률을
+   pooling, (b) 멤버 표현을 concat해 head 하나, (c) 단일 멤버로 arm을
+   재정의하고 그 사실을 결과에 명시. 판단이 필요하다.
+
+3. PROPHECG 카드의 `training_modes_supported`에서 `full_finetune`을 뺄 것인가?
+   keras adapter는 fine-tuning을 구현하지 않았다. spec §2.5의 어떤 arm도
+   요구하지 않고, archived Keras 2.7 런타임은 카드가 선언한 대로 CPU 전용이라
+   5-member ensemble을 hospital-scale dev split으로 역전파하는 것은 가용
+   하드웨어에서 실행 가능하지 않다. 카드가 선언만 하고 실행할 수 없는 상태를
+   남길지, 선언을 현실에 맞출지 정해야 한다.
+
 ### Evaluation
 
 1. primary metric과 secondary metric은 무엇인가?

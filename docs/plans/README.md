@@ -7,7 +7,7 @@
 | 1 | [Framework core](2026-08-14-framework-core.md) | ModelCard registry, adapter, op 라이브러리, recipe 컴파일러, input contract gate, golden test | 없음 (합성 신호로 검증) | **구현 완료** (인스턴스 검증 11건 대기) |
 | 2 | Pipeline runner | 단계 CLI 골격, `config_hash`, run manifest, exclusion ledger, artifact 주소 규칙 | Plan 1 | **구현 완료** |
 | 3 | [Preprocess stage](2026-08-14-plan3-preprocess.md) | perturbation grid, on-the-fly 적용, `preprocess_index`, tensor 저장 | Plan 1, 2 | **구현 완료** |
-| 4 | [Models stage](2026-08-14-plan4-models.md) | training mode 4종, `fit`, threshold 정책, leakage/contamination gate, prediction 출력 | Plan 1, 2 | **구현 완료** (`fit`은 adapter 미구현으로 차단) |
+| 4 | [Models stage](2026-08-14-plan4-models.md) | training mode 4종, `fit`, threshold 정책, leakage/contamination gate, prediction 출력 | Plan 1, 2 | **구현 완료** (adapter `fit` 포함) |
 | 5 | [Evaluation stage](2026-08-14-plan5-evaluation.md) | 범주 4개, bootstrap, paired bootstrap 비교, `metrics_long`, figure | Plan 2, 4 | **구현 완료** (범주 4 interpretation은 스키마만) |
 | 6 | Retrieve / Profile | cohort SQL, DICOM 경로 해석, acquisition metadata, event-count gate, split 동결 | **Data4Life 설치 + MI-CDM 접근** | 미작성 (차단됨) |
 | 7 | Misclassification | selector 4종, 사례 시각화, review 병합 | Plan 4, 5 | 미작성 |
@@ -30,5 +30,5 @@ Plan 2 이후는 방식을 바꿨다. 계약 계층(Plan 2)은 컨트롤러가 �
 
 - **Plan 6 (Retrieve/Profile)** — Data4Life 설치 + MI-CDM 접근에 차단됨
 - **Plan 7 (Misclassification)** — Plan 4·5 산출물 확인 후 착수
-- **adapter `fit()`** — `adapters/base.py`에 `fit`/`attribute`가 없어 현재 실제 weights로는 `inference_only`만 실행 가능하다. `linear_probe` 이상을 돌리려면 base와 두 adapter를 함께 확장해야 한다
+- **PROPHECG `feature_layer`** — 카드에 `null`이라 spec §2.5의 "PROPHECG head-retrained (`linear_probe`)" arm이 아직 실행 불가다. H5를 열어 penultimate layer 이름을 확인해 카드에 적어야 하며, 5-member ensemble을 어떻게 probe할지도 함께 정해야 한다 (decisions Models 1·2)
 - **DICOM-MIVA 검증** — Plan 1의 torch 4건 / keras 5건 / golden 2건이 아직 한 번도 실행된 적 없다

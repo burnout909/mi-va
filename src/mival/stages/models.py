@@ -895,6 +895,12 @@ class ModelsStage(Stage):
             "feature_layer": card.feature_layer,
             "unfreeze_groups": list(arm.unfreeze_groups),
             "hparams": dict(chosen),
+            # What the adapter actually did — resolved hyperparameters, the
+            # epoch early stopping chose, the trainable parameter count. Spec
+            # §4.4 requires the full hyperparameters on record, and `chosen`
+            # above holds only what the study asked for, not the defaults the
+            # adapter filled in.
+            "fit_record": getattr(final_handle, "fit_record", None),
             "internal_cv": {
                 "folds": folds,
                 "selection_metric": SELECTION_METRIC,
