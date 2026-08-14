@@ -69,6 +69,31 @@
 softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
 고정했으며 12-lead CUDA forward를 확인했다. 상세 값은 `docs/models/`에 있다.
 
+### Preprocess (구현에서 제기됨)
+
+4. perturbation 축 `powerline_50hz`는 MIMIC에 대해 틀린 값인가?
+   spec §4.3은 50 Hz로 적고 있으나 MIMIC-IV의 출처 기관(Beth Israel
+   Deaconess, 보스턴)의 상용 전원은 60 Hz다. 50 Hz 간섭은 이 기관 장비가
+   만들어낼 수 없는 아티팩트이므로, 이 수준은 robustness를 측정하지 못하고
+   해당 축의 한 칸을 낭비한다. `mival.perturbation`은 주파수를 수준 이름에서
+   파싱하므로 `powerline_60hz`로 바꾸는 데 코드 변경은 필요 없다.
+   확정되면 spec §4.3 표와 study.yaml을 함께 고친다.
+
+5. perturbation의 `amplitude_scale` 축은 정규화 모델에 대해 무의미한가?
+   perturbation은 저장된 tensor에 적용된 뒤 입력계약의 `scaling`이 다시
+   적용된다. 따라서 `scaling: none`인 PROPHECG에는 실제 gain 오류이지만,
+   `global_zscore`인 ECGFounder에는 정확히 아무 효과가 없다. 이것이 옳은
+   답이라는 것이 구현 시점의 판단이다 — 실제로 잘못 보정된 ECG도 모델
+   자신의 정규화를 통과하므로, 재정규화하지 않으면 배포 환경에서 일어날 수
+   없는 robustness 실패를 보고하게 된다. 다만 결과표에서 이 축이 모델별로
+   다른 의미를 갖는다는 점을 명시해야 한다.
+
+6. 여러 모델이 한 record에 대해 서로 다르게 판정할 때 STARD flow의
+   participant 수를 어떻게 센다고 선언할 것인가?
+   exclusion ledger는 record당 한 행을 기록하므로(모델당이 아니라), 모델이
+   엇갈리면 `in != out + excluded`가 된다. Preprocess stage가 경고를 내지만
+   Figure 1의 계수 규약은 사람이 정해야 한다.
+
 ### Evaluation
 
 1. primary metric과 secondary metric은 무엇인가?
