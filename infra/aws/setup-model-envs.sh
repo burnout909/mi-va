@@ -39,7 +39,7 @@ fi
   protobuf==3.19.6 \
   wrapt==1.13.3 \
   scipy==1.9.3 \
-  pytest>=7
+  "pytest>=7"
 
 "$ENV_ROOT/ecgfounder/bin/python" -c \
   'import torch; print("ECGFounder:", torch.__version__, torch.cuda.is_available())'
