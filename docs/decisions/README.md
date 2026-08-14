@@ -55,8 +55,15 @@
 
 1. 사용자가 model architecture와 hyperparameter를 어디까지 바꿀 수 있는가?
 2. PROPHECG-STEMI의 amplitude scaling과 5120→5000 변경 이력은 무엇인가?
+   현재 `registry/models/prophecg-stemi.json`은 `input_contract.scaling`을
+   `none`으로 선언해 두었다. 근거 문서가 없어 잠정 선언한 값이므로,
+   확인되면 카드를 고치고 golden 값을 다시 생성해야 한다.
 3. archived PTB threshold `0.0768`을 새 cohort에서 다시 추정할 것인가?
 4. ECGFounder의 downstream STEMI head와 split protocol은 무엇인가?
+5. `registry/models/prophecg-stemi.json`과 `registry/models/ecgfounder.json`의
+   `x-mival.pretraining_corpora` 값(`institutional-ed-ecg-2022`,
+   `harvard-emory-ecg`)은 잠정값이다. contamination gate(Plan 4)를 켜기 전에
+   원 논문·모델 카드와 대조해 확정해야 한다.
 
 2026-08-10 확인: PROPHECG는 Keras 2.7, 8-lead `(5000, 8)`, 2-class
 softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
