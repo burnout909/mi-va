@@ -64,7 +64,8 @@ def compile_recipe(
             BandFilter(
                 kind=spec["kind"],
                 cutoff_hz=spec["cutoff_hz"],
-                order=int(spec.get("order", 4)),
+                # Required by the input contract; never defaulted here.
+                order=int(spec["order"]),
             )
         )
 

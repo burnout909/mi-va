@@ -43,7 +43,7 @@ class FakeAdapter(Adapter):
     def __init__(self) -> None:
         self.feature_calls = 0
 
-    def features(self, handle, batch):
+    def features(self, handle, batch, index=0):
         self.feature_calls += 1
         return np.asarray(batch)[:, :, 0]
 
@@ -423,7 +423,7 @@ def test_an_adapter_that_cannot_attach_a_head_says_so():
 
 def test_features_of_the_wrong_shape_are_caught_with_the_adapter_named():
     class Broken(FakeAdapter):
-        def features(self, handle, batch):
+        def features(self, handle, batch, index=0):
             return np.zeros(len(batch))  # 1-D, not (B, D)
 
     with pytest.raises(TrainingError, match="features\\(\\) returned shape"):
@@ -433,3 +433,81 @@ def test_features_of_the_wrong_shape_are_caught_with_the_adapter_named():
 def test_attribute_is_optional_and_says_which_adapter_lacks_it():
     with pytest.raises(NotImplementedError, match="optional"):
         FakeAdapter().attribute("handle", np.zeros((1, 2, 3)))
+
+
+# ---------------------------------------------------------------------------
+# Several representations per handle (ensembles) — spec §2.5 symmetry
+# ---------------------------------------------------------------------------
+
+
+class EnsembleAdapter(Adapter):
+    """Three "members" whose representations share no coordinate system.
+
+    Member k sees the two real features permuted and offset by k, which is what
+    independently trained members look like: each is informative, none is
+    comparable to another coordinate for coordinate.
+    """
+
+    name = "fake_ensemble"
+
+    def __init__(self, n_members=3):
+        self.n_members = n_members
+        self.calls = []
+
+    def feature_set_names(self, handle):
+        return [f"member{index}" for index in range(self.n_members)]
+
+    def features(self, handle, batch, index=0):
+        self.calls.append(index)
+        block = np.asarray(batch)[:, :, 0]
+        return np.roll(block, index, axis=1) + index
+
+    def with_heads(self, handle, heads, record):
+        return {"handle": handle, "heads": list(heads), "fit_record": dict(record)}
+
+
+def test_one_head_is_fitted_per_representation(tmp_path):
+    adapter = EnsembleAdapter()
+    fitted = adapter.fit(object(), make_data(), "linear_probe", {"epochs": 30})
+    assert len(fitted["heads"]) == 3
+    assert fitted["fit_record"]["feature_sets"] == ["member0", "member1", "member2"]
+
+
+def test_every_member_is_read_and_none_is_read_twice_per_epoch():
+    adapter = EnsembleAdapter()
+    adapter.fit(object(), make_data(n=32, n_validation=0, batch_size=32), "linear_probe",
+                {"epochs": 40})
+    # One features() call per member per split, not one per epoch.
+    assert sorted(adapter.calls) == [0, 1, 2]
+
+
+def test_the_per_member_fits_are_all_recorded_not_just_the_first():
+    adapter = EnsembleAdapter()
+    fitted = adapter.fit(object(), make_data(), "linear_probe", {"epochs": 30})
+    members = fitted["fit_record"]["members"]
+    assert [entry["feature_set"] for entry in members] == ["member0", "member1", "member2"]
+    assert all("train_loss" in entry for entry in members)
+
+
+def test_each_member_head_learns_its_own_representation():
+    adapter = EnsembleAdapter()
+    data = make_data(seed=3)
+    fitted = adapter.fit(object(), data, "linear_probe", {"epochs": 200})
+    # The members differ, so heads fitted on them must differ too; identical
+    # heads would mean the permutation never reached the fit.
+    weights = [head.weights.tolist() for head in fitted["heads"]]
+    assert weights[0] != weights[1] != weights[2]
+
+
+def test_a_single_representation_still_goes_through_with_head():
+    adapter = FakeAdapter()
+    fitted = adapter.fit(object(), make_data(), "linear_probe", {"epochs": 20})
+    assert "head" in fitted and "heads" not in fitted
+
+
+def test_an_adapter_with_several_representations_must_implement_with_heads():
+    class Partial(EnsembleAdapter):
+        with_heads = Adapter.with_heads
+
+    with pytest.raises(NotImplementedError, match="with_heads"):
+        Partial().fit(object(), make_data(), "linear_probe", {"epochs": 5})

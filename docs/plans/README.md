@@ -29,6 +29,6 @@ Plan 2 이후는 방식을 바꿨다. 계약 계층(Plan 2)은 컨트롤러가 �
 ## 남은 작업
 
 - **Plan 6 (Retrieve/Profile)** — Data4Life 설치 + MI-CDM 접근에 차단됨
-- **PROPHECG `feature_layer`** — 카드에 `null`이라 spec §2.5의 "PROPHECG head-retrained (`linear_probe`)" arm이 아직 실행 불가다. H5를 열어 penultimate layer 이름을 확인해 카드에 적어야 하며, 5-member ensemble을 어떻게 probe할지도 함께 정해야 한다 (decisions Models 1·2)
-- **fitted head의 영속화** — `linear_probe`·fine-tune 된 head는 models stage 메모리에만 존재하고 디스크에 남지 않는다. 그래서 6단계가 그 arm의 handle을 복원할 수 없고 attribution overlay를 그리지 못한다 (decisions Models 4)
+- **PROPHECG `feature_layer`** — 카드에 `null`이라 spec §2.5의 "PROPHECG head-retrained (`linear_probe`)" arm이 아직 실행 불가다. H5의 `model.summary()`에서 penultimate layer 이름을 확인해 카드에 적으면 된다. probe 방식은 결정됐다(멤버별 head + 카드 선언대로 확률 pooling, decisions Models 5)
+- **study.yaml 선언 필요** — 전원 주파수(`powerline_60hz`)와 attribution baseline은 코드가 알 수 없는 사실이라 기본값이 없다 (decisions Preprocess 7, Misclassification 1)
 - **DICOM-MIVA 검증** — Plan 1의 torch 4건 / keras 5건 / golden 2건이 아직 한 번도 실행된 적 없다

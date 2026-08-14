@@ -4,6 +4,7 @@ import pytest
 from mival.ops import Normalize
 from mival.perturbation import (
     AXIS_ORDER,
+    GridContractError,
     BASELINE_ID,
     DEFAULT_AXES,
     LEAD_DROPOUT_SETS,
@@ -12,6 +13,7 @@ from mival.perturbation import (
     apply,
     baseline,
     build_grid,
+    check_grid_against_contract,
     from_id,
     resolve_axes,
 )
@@ -32,15 +34,29 @@ def contract_signal(record_index=0, leads=LEADS_12, rate=500.0, n_samples=5000):
 # --------------------------------------------------------------------------
 
 
-def test_axes_and_levels_are_exactly_spec_section_4_3():
+def test_axes_and_levels_are_spec_section_4_3_minus_the_site_fact():
     assert dict(DEFAULT_AXES) == {
         "resample": (500, 250, 125, 100),
         "lead_dropout": ("none", "drop_V3V4", "precordial_only", "limb_only"),
         "duration": (10, 5, 2.5),
         "amplitude_scale": (1.0, 0.5, 2.0),
-        "noise": ("none", "baseline_wander", "powerline_50hz", "emg"),
+        "noise": ("none", "baseline_wander", "emg"),
     }
     assert AXIS_ORDER == ("resample", "lead_dropout", "duration", "amplitude_scale", "noise")
+
+
+def test_no_mains_frequency_is_assumed_by_default():
+    """Spec §4.3 writes `powerline_50hz`; this code declines to assume it.
+
+    The mains frequency is a fact about the site's building. MIMIC-IV comes
+    from Boston and Korean hospitals run at 60 Hz, so a 50 Hz level would
+    measure robustness to interference neither site's equipment can produce —
+    and it would still fill a cell and still be reported. The level is
+    available; the study has to name it.
+    """
+    assert not any("powerline" in str(level) for level in DEFAULT_AXES["noise"])
+    declared = build_grid(axes={"noise": ["none", "powerline_60hz"]})
+    assert any(point.noise == "powerline_60hz" for point in declared)
 
 
 def test_ofat_grid_moves_exactly_one_axis_off_baseline():
@@ -65,15 +81,19 @@ def test_ofat_grid_covers_every_non_baseline_level_and_nothing_else():
 
 
 def test_ofat_condition_count_is_inside_the_spec_range():
-    # Spec §4.3: "baseline 포함 약 13~16조건".
-    grid = build_grid()
-    assert len(grid) == 14
-    assert 13 <= len(grid) <= 16
+    # Spec §4.3: "baseline 포함 약 13~16조건". The default grid has 13; a study
+    # that declares its own mains frequency gets the 14th.
+    assert len(build_grid()) == 13
+    with_mains = build_grid(
+        axes={"noise": ["none", "baseline_wander", "powerline_60hz", "emg"]}
+    )
+    assert len(with_mains) == 14
+    assert 13 <= len(build_grid()) <= 16
 
 
 def test_cartesian_is_the_full_product_and_opt_in():
     assert build_grid("cartesian") != build_grid()
-    assert len(build_grid("cartesian")) == 4 * 4 * 3 * 3 * 4
+    assert len(build_grid("cartesian")) == 4 * 4 * 3 * 3 * 3
 
 
 def test_ofat_ids_mean_the_same_thing_in_cartesian_mode():
@@ -272,7 +292,10 @@ def test_apply_rejects_an_unknown_scaling():
 # Reproducibility: seed + perturbation_id (+ record)
 # --------------------------------------------------------------------------
 
-NOISE_IDS = ["noise-baseline_wander", "noise-powerline_50hz", "noise-emg"]
+NOISE_IDS = ["noise-baseline_wander", "noise-powerline_60hz", "noise-emg"]
+# The mains level is no longer a default (it is a site fact), so every test
+# that exercises one declares it.
+NOISE_AXES = {"noise": ["none", "baseline_wander", "powerline_60hz", "emg"]}
 
 
 @pytest.mark.parametrize("point", build_grid(), ids=lambda p: p.id)
@@ -286,16 +309,16 @@ def test_the_same_seed_and_perturbation_id_give_a_bit_identical_result(point):
 @pytest.mark.parametrize("perturbation_id", NOISE_IDS)
 def test_a_different_seed_gives_a_different_noise_realization(perturbation_id):
     sig = contract_signal(16)
-    first = apply(sig, perturbation_id, seed=1)
-    second = apply(sig, perturbation_id, seed=2)
+    first = apply(sig, perturbation_id, seed=1, axes=NOISE_AXES)
+    second = apply(sig, perturbation_id, seed=2, axes=NOISE_AXES)
     assert first.data.tobytes() != second.data.tobytes()
 
 
 @pytest.mark.parametrize("perturbation_id", NOISE_IDS)
 def test_two_records_get_different_noise_under_one_seed(perturbation_id):
     # An identical noise realization across the cohort is a confound, not noise.
-    first = apply(contract_signal(17), perturbation_id, seed=5)
-    second = apply(contract_signal(18), perturbation_id, seed=5)
+    first = apply(contract_signal(17), perturbation_id, seed=5, axes=NOISE_AXES)
+    second = apply(contract_signal(18), perturbation_id, seed=5, axes=NOISE_AXES)
     assert first.data.tobytes() != second.data.tobytes()
 
 
@@ -325,7 +348,7 @@ def test_seed_does_not_touch_the_deterministic_axes():
 def test_noise_lands_near_the_configured_snr(perturbation_id):
     sig = contract_signal(21)
     config = NoiseConfig(snr_db=20.0)
-    out = apply(sig, perturbation_id, seed=7, noise=config)
+    out = apply(sig, perturbation_id, seed=7, noise=config, axes=NOISE_AXES)
     residual = out.data.astype(np.float64) - sig.data.astype(np.float64)
     achieved = 20.0 * np.log10(
         np.sqrt(np.mean(sig.data.astype(np.float64) ** 2)) / np.sqrt(np.mean(residual**2))
@@ -335,7 +358,10 @@ def test_noise_lands_near_the_configured_snr(perturbation_id):
 
 def test_powerline_energy_sits_at_the_frequency_named_by_the_level():
     sig = contract_signal(22)
-    out = apply(sig, "noise-powerline_50hz", seed=7)
+    out = apply(
+        sig, "noise-powerline_50hz", seed=7,
+        axes={"noise": ["none", "powerline_50hz"]},
+    )
     residual = out.data[0].astype(np.float64) - sig.data[0].astype(np.float64)
     spectrum = np.abs(np.fft.rfft(residual))
     frequencies = np.fft.rfftfreq(residual.size, d=1.0 / 500.0)
@@ -397,3 +423,47 @@ def test_a_window_that_keeps_no_samples_is_rejected():
     )
     with pytest.raises(ValueError, match="keeps no samples"):
         apply(contract_signal(25), broken, seed=1)
+
+
+# --------------------------------------------------------------------------
+# The grid means something only relative to an input contract
+# --------------------------------------------------------------------------
+
+
+class _Contract:
+    def __init__(self, sampling_rate_hz=500.0, duration_s=10.0):
+        self.sampling_rate_hz = sampling_rate_hz
+        self.duration_s = duration_s
+
+
+def test_the_default_grid_fits_a_500hz_ten_second_contract():
+    assert check_grid_against_contract(None, _Contract()) == []
+
+
+def test_a_level_at_or_above_the_contract_would_duplicate_the_baseline():
+    """resample-250 on a 250 Hz contract is bit-identical to baseline."""
+    with pytest.raises(GridContractError, match="bit-identical"):
+        check_grid_against_contract(
+            {"resample": [250, 250, 125]}, _Contract(sampling_rate_hz=250.0)
+        )
+
+
+def test_a_baseline_level_below_the_contract_contaminates_every_other_cell():
+    """Every non-baseline cell carries the other axes' baseline levels."""
+    with pytest.raises(GridContractError, match="cropped"):
+        check_grid_against_contract({"duration": [10, 5]}, _Contract(duration_s=20.0))
+
+
+def test_a_baseline_level_above_the_contract_is_only_a_warning():
+    # The cell is the identity, which is what a baseline should be; the name
+    # just claims a value this model never receives.
+    warnings = check_grid_against_contract(
+        {"resample": [500, 125, 100]}, _Contract(sampling_rate_hz=250.0)
+    )
+    assert len(warnings) == 1
+    assert "never receives" in warnings[0]
+
+
+def test_the_error_says_that_one_grid_serves_every_card():
+    with pytest.raises(GridContractError, match="cannot both be served"):
+        check_grid_against_contract({"duration": [10, 5]}, _Contract(duration_s=20.0), "m1")

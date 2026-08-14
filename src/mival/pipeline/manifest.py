@@ -12,14 +12,18 @@ so it must be written last and written atomically.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+from mival import __version__
 
 from .hashing import sha256_file
 
@@ -77,6 +81,56 @@ def capture_git(cwd: Union[str, Path, None] = None) -> Dict[str, Any]:
         return {"commit": None, "dirty": None}
     status = _git(["status", "--porcelain"], cwd)
     return {"commit": commit, "dirty": None if status is None else bool(status)}
+
+
+def _source_digest() -> Optional[str]:
+    """A checksum over ``mival``'s own Python source.
+
+    ``capture_git`` records the commit, but a commit is not enough to decide
+    whether a finished run may be skipped: it is absent for an installed copy,
+    it does not change when the tree is dirty, and the working tree is what
+    actually ran. Hashing the source files is available in every deployment and
+    changes exactly when the code does.
+    """
+    root = Path(__file__).resolve().parent.parent
+    try:
+        parts = sorted(root.rglob("*.py"))
+    except OSError:  # pragma: no cover - unreadable install
+        return None
+    if not parts:  # pragma: no cover - zipped install
+        return None
+    digest = hashlib.sha256()
+    for part in parts:
+        try:
+            body = part.read_bytes()
+        except OSError:  # pragma: no cover - unreadable file
+            return None
+        digest.update(str(part.relative_to(root)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(body).digest())
+    return digest.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def code_identity() -> Dict[str, Any]:
+    """Which code produced this run.
+
+    Recorded in every manifest and compared before a finished run is skipped.
+    Without that comparison, editing a default in this package leaves
+    ``config_hash`` unchanged — it hashes the study spec and the input files,
+    not the code — so the next run is skipped as complete and the old numbers
+    are reported as new ones.
+
+    Deliberately not part of ``config_hash``: the hash names the run directory,
+    and folding the source into it would scatter a study's artifacts across a
+    new directory for every edit, including edits to a comment. Naming and
+    staleness are different questions, so they get different mechanisms.
+    """
+    return {
+        "mival_version": __version__,
+        "source_sha256": _source_digest(),
+        "container_digest": os.environ.get("MIVAL_CONTAINER_DIGEST"),
+    }
 
 
 def capture_env() -> Dict[str, Any]:
@@ -137,6 +191,8 @@ class RunManifest:
     config_hash: str
     seed: Optional[int] = None
     git: Dict[str, Any] = field(default_factory=capture_git)
+    #: Which code produced this run. Compared before a finished run is skipped.
+    code: Dict[str, Any] = field(default_factory=code_identity)
     env: Dict[str, Any] = field(default_factory=capture_env)
     input_artifacts: List[ArtifactRef] = field(default_factory=list)
     output_artifacts: List[ArtifactRef] = field(default_factory=list)

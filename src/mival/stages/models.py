@@ -768,10 +768,17 @@ class ModelsStage(Stage):
             run_keys.append(key)
             written += len(subset)
 
+        head_path = _persist_heads(ctx, final_handle, arm, recipe_id, perturbation_id)
+        if head_path is not None:
+            outputs.append(head_path)
+
         entry = {
             "model_id": arm.model_id,
             "training_mode": arm.training_mode,
             "label_def": arm.label_def,
+            "fitted_head": None if head_path is None else str(
+                head_path.relative_to(ctx.layout.run_dir)
+            ),
             "recipe_id": recipe_id,
             "perturbation_id": perturbation_id,
             "site": ctx.site,
@@ -930,6 +937,48 @@ class ModelsStage(Stage):
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+#: Where fitted heads are written, relative to ``ctx.layout.artifacts_dir``.
+HEADS_DIR = "heads"
+
+
+def _persist_heads(
+    ctx: StageContext, handle: Any, arm: "Arm", recipe_id: str, perturbation_id: str
+) -> Optional[Path]:
+    """Write the fitted linear head(s) beside the predictions, or return None.
+
+    A head fitted here otherwise exists only in this process's memory, and
+    every downstream question that needs the model back — reproducing a
+    prediction, drawing an attribution overlay for a probed arm in stage 6 —
+    becomes impossible for exactly the arms the study trained. It is four small
+    arrays per head, so the alternative to storing it is not a saving.
+
+    ``inference_only`` arms have no fitted head and produce no file.
+    """
+    heads = getattr(handle, "heads", None)
+    if not heads:
+        single = getattr(handle, "head", None)
+        heads = [single] if single is not None else []
+    if not heads:
+        return None
+    payload: Dict[str, Any] = {}
+    for index, head in enumerate(heads):
+        for field_name in ("weights", "bias", "mean", "scale"):
+            payload[f"head{index}.{field_name}"] = np.asarray(getattr(head, field_name))
+    name = "~".join(
+        [
+            f"model_id={arm.model_id}",
+            f"training_mode={arm.training_mode}",
+            f"recipe_id={recipe_id}",
+            f"perturbation_id={perturbation_id}",
+            f"label_def={arm.label_def}",
+        ]
+    )
+    path = ctx.layout.artifact(HEADS_DIR, name + ".npz")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(str(path), **payload)
+    return path
 
 
 def _registry_files(directory: Path) -> Dict[str, Path]:

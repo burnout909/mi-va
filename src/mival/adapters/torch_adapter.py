@@ -147,8 +147,14 @@ class TorchAdapter(Adapter):
         module = module.to(device).eval()
         return TorchHandle(module=module, device=device, card=card)
 
-    def features(self, handle: TorchHandle, batch: np.ndarray) -> np.ndarray:
+    def features(self, handle: TorchHandle, batch: np.ndarray, index: int = 0) -> np.ndarray:
         import torch
+
+        if index != 0:
+            raise IndexError(
+                f"{handle.card.model_id!r} has one representation; feature set {index} "
+                "does not exist"
+            )
 
         arranged = to_model_layout(batch, handle.card.input_contract.layout)
         tensor = torch.from_numpy(np.ascontiguousarray(arranged)).to(handle.device)

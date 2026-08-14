@@ -94,6 +94,14 @@ softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
    엇갈리면 `in != out + excluded`가 된다. Preprocess stage가 경고를 내지만
    Figure 1의 계수 규약은 사람이 정해야 한다.
 
+7. powerline 수준에는 이제 기본값이 없다. 무엇으로 선언할 것인가?
+   spec §4.3은 `powerline_50hz`로 적지만 전원 주파수는 **건물의 사실**이다.
+   MIMIC-IV는 보스턴, 한국 병원도 60 Hz이므로 50 Hz 간섭은 두 사이트 어느 장비도
+   만들 수 없는 아티팩트다. 틀린 기본값은 없는 수준보다 나쁘다 — 셀을 채우고
+   보고까지 되기 때문이다. 2026-08-14에 기본 grid에서 뺐으므로, study.yaml이
+   `noise: [none, baseline_wander, powerline_60hz, emg]`로 선언해야 한다.
+   선언하지 않으면 기본 OFAT 조건 수는 14가 아니라 13이다.
+
 ### Models (adapter `fit()` 구현에서 제기됨)
 
 1. PROPHECG의 `feature_layer`는 무엇인가?
@@ -120,12 +128,37 @@ softmax의 5-member mean ensemble이다. ECGFounder artifact와 code revision도
    남길지, 선언을 현실에 맞출지 정해야 한다.
 
 4. fitted head를 디스크에 남길 것인가?
-   `linear_probe`·fine-tune 된 head(`LinearHead`: weights, bias, mean, scale)는
-   models stage 메모리에만 존재한다. 그래서 Misclassification이 그 arm의 handle을
-   복원할 수 없고, 학습된 arm의 사례에는 attribution overlay를 그리지 못한다
-   (`attribution_status = unavailable_fitted_head_not_persisted`). head는 작은 배열
-   4개이므로 저장 비용은 사실상 없다. 남기면 6단계가 학습 arm까지 해석할 수 있고,
-   예측을 재현 검증할 수도 있다. 다만 이는 4단계 산출물 계약의 변경이다.
+
+   2026-08-14 결정: **남긴다.** models stage가 `heads/<arm>.npz`에 쓰고
+   `train_log.jsonl`의 `fitted_head`가 경로를 기록한다. 이유는 head가 메모리에만
+   있으면 학습된 arm에 대해 예측 재현도, attribution overlay도 불가능한데, head는
+   작은 배열 4개라 저장 비용이 사실상 0이기 때문이다. 4단계 산출물이 하나 늘었다.
+   관련 코드: `src/mival/stages/models.py` (`HEADS_DIR`, `_persist_heads`).
+
+5. 5-member ensemble을 어떻게 linear-probe할 것인가? (위 2번의 후속)
+
+   2026-08-14 결정: **멤버마다 head를 학습하고 카드가 선언한 `ensemble.method`로
+   확률 수준에서 pooling한다.** 이유는 이것이 코드의 선택이 아니라 **카드가 이미
+   답을 갖고 있던 것**이기 때문이다 — `inference_only`는 확률 수준에서 평균하므로,
+   같은 위치에서 pooling하는 probe만이 두 arm을 같은 크기·같은 구조로 만든다.
+   `Adapter.feature_set_names()`가 표현 목록을 내고 `_fit_linear_probe`가 그 수만큼
+   head를 학습한다. 카드가 `mean_probability`가 아닌 pooling을 선언하면 거부한다.
+   관련 코드: `src/mival/adapters/base.py`, `src/mival/adapters/keras_adapter.py`.
+
+6. perturbation 그리드는 카드마다 다를 수 없다.
+   `perturbation.axes`는 study 전체에 하나뿐인데, `resample`·`duration` 수준은
+   **계약에 상대적**으로만 의미가 있다. 그래서 sampling rate나 duration이 서로 다른
+   카드 둘은 하나의 그리드로 함께 검증할 수 없다(`check_grid_against_contract`가
+   거부한다). 현재 두 카드 모두 500 Hz / 10 s라 영향이 없지만, 다른 계약의 모델을
+   추가하면 C1("카드 하나만 추가")이 이 지점에서 깨진다. 축을 계약 상대값(예:
+   `resample: [1.0, 0.5, 0.25]`)으로 재정의할지 판단이 필요하다.
+
+7. `lead_dropout` 수준은 모델마다 다른 손상을 뜻한다.
+   `LEAD_DROPOUT_SETS`는 12유도 표준으로 정의되고 perturbation은 **계약 적용 후**의
+   tensor에 적용된다. PROPHECG는 8유도(I, II, V1–V6)이므로 `limb_only`는 2유도만
+   남기고, ECGFounder(12유도)는 6유도를 남긴다. 같은 셀에서 두 모델을 비교하면 서로
+   다른 정도의 손상을 비교하는 것이다. `amplitude_scale`(Preprocess 5번)과 같은
+   부류이며, 결과표에 모델별 잔존 유도 수를 함께 적어야 한다.
 
 ### Misclassification (Plan 7 구현에서 제기됨)
 

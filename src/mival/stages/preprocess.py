@@ -44,7 +44,12 @@ from mival.compiler import compile_recipe
 from mival.contract import CompileError, REASON_CODES
 from mival.modelcard import ModelCard, load_registry
 from mival.ops import OpChain
-from mival.perturbation import DEFAULT_MODE, build_grid, resolve_axes
+from mival.perturbation import (
+    DEFAULT_MODE,
+    build_grid,
+    check_grid_against_contract,
+    resolve_axes,
+)
 from mival.pipeline.hashing import canonical_json
 from mival.pipeline.stage import Stage, StageContext, StageResult
 from mival.pipeline.tables import read_table, write_table
@@ -212,6 +217,16 @@ class PreprocessStage(Stage):
         grid = build_grid(mode=mode, axes=perturbation_spec.get("axes"))
 
         cards = self._load_registry(registry_dir)
+        # The grid degrades a tensor that has already been compiled to a card's
+        # input contract, so its levels only mean something relative to that
+        # contract. Checked once per card, before any record is read.
+        grid_warnings: List[str] = []
+        for card in cards.values():
+            grid_warnings.extend(
+                check_grid_against_contract(
+                    perturbation_spec.get("axes"), card.input_contract, card.model_id
+                )
+            )
         cohort = read_table(ctx.input_path("cohort_index"))
         missing = [name for name in COHORT_INDEX_COLUMNS if name not in cohort.columns]
         if missing:
@@ -222,7 +237,7 @@ class PreprocessStage(Stage):
 
         rows: List[Dict[str, Any]] = []
         recipes: Dict[str, Dict[str, Any]] = {}
-        warnings: List[str] = []
+        warnings: List[str] = list(grid_warnings)
         written: set = set()
         seen: set = set()
         n_in = 0

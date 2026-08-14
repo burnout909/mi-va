@@ -69,6 +69,24 @@ class InputContract:
                     f"unsupported filter kind {kind!r}: "
                     f"must be one of {sorted(SUPPORTED_FILTER_KINDS)}"
                 )
+            # The order is required for the same reason `unit` is: it changes
+            # the samples the model is given, and nothing downstream can detect
+            # that the wrong one was used. A default here would be this file
+            # guessing at the model's own preprocessing.
+            if spec.get("order") is None:
+                raise ValueError(
+                    f"filter {kind!r} declares no 'order'. The filter order changes the "
+                    "waveform the model sees and cannot be recovered downstream, so it is "
+                    "read from the ModelCard rather than defaulted."
+                )
+            try:
+                order = int(spec["order"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"filter {kind!r} has a non-integer order {spec['order']!r}"
+                ) from exc
+            if order < 1:
+                raise ValueError(f"filter {kind!r} has order {order}; it must be at least 1")
         return cls(
             leads=tuple(body["leads"]),
             sampling_rate_hz=float(body["sampling_rate_hz"]),

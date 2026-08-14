@@ -253,3 +253,51 @@ def test_config_input_colliding_with_a_cli_input_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="collides"):
         context(tmp_path, Colliding(), inputs={"cohort_index": source})
+
+
+# ---------------------------------------------------------------------------
+# A finished run is skipped only if this code produced it
+# ---------------------------------------------------------------------------
+
+
+def test_a_run_produced_by_different_code_is_re_run_not_skipped(tmp_path):
+    """config_hash covers the spec and the inputs, never mival's own source.
+
+    Without this check, editing a default in this package would leave the hash
+    unchanged, the finished run would be skipped, and the old numbers would be
+    reported as new ones.
+    """
+    import json
+
+    stage = Recorder()
+    ctx = context(tmp_path, stage)
+    assert execute(stage, ctx)["status"] == "ok"
+
+    manifest_path = ctx.layout.manifest_path
+    body = json.loads(manifest_path.read_text())
+    body["code"]["source_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(body))
+
+    again = execute(stage, context(tmp_path, stage))
+    assert again["status"] == "ok"
+    fresh = json.loads(manifest_path.read_text())
+    assert any("different mival source" in warning for warning in fresh["warnings"])
+
+
+def test_an_unreadable_manifest_re_runs_rather_than_trusts(tmp_path):
+    stage = Recorder()
+    ctx = context(tmp_path, stage)
+    assert execute(stage, ctx)["status"] == "ok"
+    ctx.layout.manifest_path.write_text("{not json")
+    assert execute(stage, context(tmp_path, stage))["status"] == "ok"
+
+
+def test_the_manifest_records_which_code_produced_it(tmp_path):
+    from mival.pipeline.manifest import code_identity
+
+    stage = Recorder()
+    ctx = context(tmp_path, stage)
+    execute(stage, ctx)
+    manifest = RunManifest.read(ctx.layout.manifest_path)
+    assert manifest.code["source_sha256"] == code_identity()["source_sha256"]
+    assert manifest.code["mival_version"]

@@ -313,7 +313,17 @@ def _single_record_run(tmp_path, card_kwargs, record_kwargs, spec_extra=None):
             }
         ],
     )
+    # The perturbation grid degrades the *contract's* rate and duration, so a
+    # fixture card that departs from the defaults needs a grid that fits it —
+    # exactly what check_grid_against_contract enforces in the stage.
+    axes = {}
+    if "duration_s" in card_kwargs:
+        axes["duration"] = [card_kwargs["duration_s"], 5, 2.5]
+    if "sampling_rate_hz" in card_kwargs:
+        axes["resample"] = [card_kwargs["sampling_rate_hz"], 250, 125, 100]
     spec = {"registry": str(registry)}
+    if axes:
+        spec["perturbation"] = {"axes": axes}
     spec.update(spec_extra or {})
     stage = PreprocessStage()
     ctx = context(tmp_path, spec, cohort, stage=stage)
@@ -416,10 +426,15 @@ def test_one_ledger_row_per_record_and_reason_not_per_model(tmp_path):
 
 
 def test_a_record_excluded_for_one_model_only_is_flagged_in_the_warnings(tmp_path):
+    # The two cards differ in leads rather than in duration: a perturbation
+    # grid degrades the *contract's* rate and duration, so two cards whose
+    # contracts differ in either cannot share one grid (see
+    # check_grid_against_contract). Leads are the axis-free way to make one
+    # card exclude a record while the other keeps it.
     registry = tmp_path / "registry"
-    write_card(registry, "ten_second", leads=LEADS_12, duration_s=10)
-    write_card(registry, "twenty_second", leads=LEADS_12, duration_s=20)
-    source = write_record(tmp_path / "raw" / "r0.npz")
+    write_card(registry, "two_lead", leads=("I", "II"))
+    write_card(registry, "twelve_lead", leads=LEADS_12)
+    source = write_record(tmp_path / "raw" / "r0.npz", leads=("I", "II"), n_samples=5000)
     cohort = write_cohort(
         tmp_path / "cohort_index.parquet",
         [
@@ -438,7 +453,7 @@ def test_a_record_excluded_for_one_model_only_is_flagged_in_the_warnings(tmp_pat
 
     assert result.counts["in"] == 1
     assert result.counts["out"] == 1
-    assert ctx.ledger.counts() == {"duration_short": 1}
+    assert ctx.ledger.counts() == {"lead_unavailable": 1}
     assert any("record-model pairs" in warning for warning in result.warnings)
 
 
@@ -522,14 +537,14 @@ def test_the_perturbation_grid_is_published_for_stage_four(tmp_path, study):
     ids = [item["perturbation_id"] for item in grid["perturbations"]]
     assert ids[0] == BASELINE_PERTURBATION_ID
     assert "resample-125" in ids
-    assert len(ids) == result.counts["perturbations"] == 14
+    assert len(ids) == result.counts["perturbations"] == 13
 
 
 def test_cartesian_mode_is_opt_in_from_the_study_spec(tmp_path, study):
     ctx, result = run_stage(tmp_path, study, spec_extra={"perturbation": {"mode": "cartesian"}})
     grid = json.loads(ctx.layout.artifact(PERTURBATION_GRID).read_text())
     assert grid["mode"] == "cartesian"
-    assert result.counts["perturbations"] == 576
+    assert result.counts["perturbations"] == 432
 
 
 def test_recipes_json_records_the_op_chain_and_the_contract_scaling(tmp_path, study):

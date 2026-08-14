@@ -63,7 +63,17 @@ DEFAULT_AXES: Mapping[str, Tuple[Any, ...]] = MappingProxyType(
         "lead_dropout": ("none", "drop_V3V4", "precordial_only", "limb_only"),
         "duration": (10, 5, 2.5),
         "amplitude_scale": (1.0, 0.5, 2.0),
-        "noise": ("none", "baseline_wander", "powerline_50hz", "emg"),
+        # No powerline level by default. Spec §4.3 writes `powerline_50hz`, but
+        # the mains frequency is a fact about the site's building, not about
+        # this study: MIMIC-IV comes from Boston and Korean hospitals run on
+        # 60 Hz, so 50 Hz interference is an artifact neither site's equipment
+        # can produce, and that cell would measure robustness to something that
+        # cannot happen. A wrong default is worse than an absent level because
+        # it still fills a cell and still gets reported, so the level is left
+        # for the study to declare:
+        #     perturbation: {axes: {noise: [none, baseline_wander,
+        #                                   powerline_60hz, emg]}}
+        "noise": ("none", "baseline_wander", "emg"),
     }
 )
 
@@ -246,6 +256,84 @@ def _make(axes: Mapping[str, Tuple[Any, ...]], levels: Mapping[str, Any]) -> Per
 def baseline(axes: Optional[Mapping[str, Sequence[Any]]] = None) -> Perturbation:
     resolved = resolve_axes(axes)
     return _make(resolved, {axis: resolved[axis][0] for axis in AXIS_ORDER})
+
+
+class GridContractError(ValueError):
+    """The declared grid does not fit the input contract it will be applied to."""
+
+
+#: Axis → (contract attribute, human name). Both of these axes *degrade*: a
+#: level at or above the contract's own value removes nothing, which
+#: ``_apply_resample`` and ``_apply_duration`` implement as identity.
+_DEGRADING_AXES = (
+    ("resample", "sampling_rate_hz", "sampling rate"),
+    ("duration", "duration_s", "duration"),
+)
+
+
+def check_grid_against_contract(
+    axes: Optional[Mapping[str, Sequence[Any]]],
+    contract: Any,
+    model_id: str = "",
+) -> List[str]:
+    """Check a grid against the contract it will degrade, returning warnings.
+
+    Perturbation is applied to a tensor that has already been compiled to the
+    input contract, so ``resample`` and ``duration`` only mean something below
+    the contract's own rate and length. Nothing else in the pipeline connects
+    the two, and the failures are both silent:
+
+    * A **baseline level below** the contract contaminates every other cell.
+      :func:`apply` short-circuits the baseline cell itself to the stored
+      tensor, so that one is safe — but every *other* cell carries the baseline
+      levels of the axes it is not varying. With a 10 s baseline level under a
+      20 s contract, ``resample-125`` would be measured on a signal that was
+      also cropped to half its length, and the degradation would be attributed
+      to the resample axis. Refused.
+    * A **later level at or above** the contract removes nothing, so it emits a
+      cell bit-identical to the baseline under a different ``perturbation_id``.
+      The results table would read the two as independent measurements.
+      Refused.
+    * A baseline level *above* the contract is harmless — it is the identity,
+      which is what a baseline should be — but its name claims a value the
+      model never receives. Warned.
+
+    A study whose cards have different contracts cannot satisfy this with one
+    grid, because ``perturbation.axes`` is study-wide. That is a real limit of
+    spec §4.3's absolute levels and the error says so rather than pretending.
+    """
+    resolved = resolve_axes(axes)
+    where = f"model {model_id!r}: " if model_id else ""
+    warnings: List[str] = []
+    for axis, attribute, label in _DEGRADING_AXES:
+        limit = float(getattr(contract, attribute))
+        levels = [float(level) for level in resolved[axis]]
+        if levels[0] < limit:
+            raise GridContractError(
+                f"{where}perturbation axis {axis!r} has baseline level {resolved[axis][0]!r}, "
+                f"below the input contract's {label} ({limit}). Every cell that varies a "
+                f"different axis still carries this level, so all of them would be "
+                f"silently {'cropped' if axis == 'duration' else 'downsampled'} and the loss "
+                f"attributed to the axis they do vary. Declare perturbation.axes.{axis} with "
+                f"{limit} first. (One grid is shared by every card, so cards whose contracts "
+                "differ in rate or duration cannot both be served by it.)"
+            )
+        degenerate = [level for level in levels[1:] if level >= limit]
+        if degenerate:
+            raise GridContractError(
+                f"{where}perturbation axis {axis!r} has level(s) {degenerate} at or above "
+                f"the input contract's {label} ({limit}). Such a level removes nothing, so "
+                "it would produce a cell bit-identical to the baseline under a different "
+                "perturbation_id, which the results table would read as an independent "
+                "measurement."
+            )
+        if levels[0] > limit:
+            warnings.append(
+                f"{where}perturbation axis {axis!r} has baseline level {resolved[axis][0]!r} "
+                f"above the input contract's {label} ({limit}). The cell is the identity, "
+                "which is correct, but its name claims a value this model never receives."
+            )
+    return warnings
 
 
 def build_grid(

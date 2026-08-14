@@ -14,7 +14,7 @@ propagate gradients into the backbone are delegated to the backend, through
 
 from __future__ import annotations
 
-from typing import Any, List, Mapping
+from typing import Any, Dict, List, Mapping
 
 import numpy as np
 
@@ -51,8 +51,13 @@ class Adapter:
         """Return positive-class probability, shape (B,)."""
         raise NotImplementedError
 
-    def features(self, handle: Any, batch: np.ndarray) -> np.ndarray:
-        """Return representations, shape (B, D)."""
+    def features(self, handle: Any, batch: np.ndarray, index: int = 0) -> np.ndarray:
+        """Return representations, shape (B, D).
+
+        ``index`` selects among ``feature_set_names(handle)``. It is 0 for every
+        model with a single representation, which is every model that is not an
+        ensemble.
+        """
         raise NotImplementedError
 
     def trainable_groups(self, handle: Any) -> List[str]:
@@ -98,6 +103,22 @@ class Adapter:
             return self._fit_linear_probe(handle, payload, hp)
         return self._finetune(handle, payload, mode, hp)
 
+    def feature_set_names(self, handle: Any) -> List[str]:
+        """The representations this handle offers, in the order ``features`` uses.
+
+        One name for an ordinary model. An ensemble has one per member, because
+        independently trained members share no coordinate system: their
+        representations cannot be averaged, and probing only the first would
+        make a "head-retrained" arm a single-member arm while the
+        ``inference_only`` arm keeps all of them — which would break the very
+        symmetry the spec §2.5 comparison depends on.
+
+        A head is fitted per name and the resulting probabilities are pooled by
+        the rule the ModelCard already declares for ``inference_only``, so both
+        arms of an ensemble pool at the same place.
+        """
+        return [self.name]
+
     def _fit_linear_probe(self, handle: Any, data: FitData, hp: FitHParams) -> Any:
         """Freeze the backbone, cache its representation, fit one logistic layer.
 
@@ -107,35 +128,70 @@ class Adapter:
         because ``features`` runs the module in inference mode — no dropout, no
         batch-norm update.
         """
-        train_features = self._collect_features(handle, data.train, data)
-        validation = None
-        if data.validation is not None:
-            validation = (
-                self._collect_features(handle, data.validation, data),
-                data.validation.y,
+        names = list(self.feature_set_names(handle))
+        if not names:
+            raise TrainingError(f"adapter {self.name!r} offers no representation to probe")
+        heads: List[LinearHead] = []
+        records: List[Mapping[str, Any]] = []
+        for index, name in enumerate(names):
+            train_features = self._collect_features(handle, data.train, data, index)
+            validation = None
+            if data.validation is not None:
+                validation = (
+                    self._collect_features(handle, data.validation, data, index),
+                    data.validation.y,
+                )
+            head, record = fit_linear_head(
+                train_features,
+                data.train.y,
+                hp,
+                validation,
+                context=f"linear_probe[{name}]",
             )
-        head, record = fit_linear_head(
-            train_features, data.train.y, hp, validation, context="linear_probe"
-        )
-        record.update(
+            record["feature_set"] = name
+            heads.append(head)
+            records.append(record)
+
+        combined: Dict[str, Any] = dict(records[0])
+        combined.update(
             {
                 "mode": "linear_probe",
                 "hparams": hp.to_record(),
                 "n_validation": 0 if data.validation is None else len(data.validation),
                 "frozen": "all",
+                "feature_sets": names,
             }
         )
-        return self.with_head(handle, head, record)
+        if len(records) > 1:
+            # An ensemble's per-member fits differ; keeping only the first
+            # would report one member's epoch count as the arm's.
+            combined["members"] = records
+        return self.with_heads(handle, heads, combined)
+
+    def with_heads(
+        self, handle: Any, heads: List[LinearHead], record: Mapping[str, Any]
+    ) -> Any:
+        """Attach one fitted head per feature set.
+
+        The single-head case delegates to ``with_head`` so that a backend with
+        one representation implements only that.
+        """
+        if len(heads) == 1:
+            return self.with_head(handle, heads[0], record)
+        raise NotImplementedError(
+            f"adapter {self.name!r} produced {len(heads)} representations but does not "
+            "implement with_heads()"
+        )
 
     def _collect_features(
-        self, handle: Any, split: FitSplit, data: FitData
+        self, handle: Any, split: FitSplit, data: FitData, index: int = 0
     ) -> np.ndarray:
         """Representations for every record of ``split``, in order."""
         chunks: List[np.ndarray] = []
         for start in range(0, len(split), data.batch_size):
             paths = split.tensor_paths[start : start + data.batch_size]
             batch = data.load_batch(list(paths))
-            block = np.asarray(self.features(handle, batch), dtype=np.float64)
+            block = np.asarray(self.features(handle, batch, index), dtype=np.float64)
             if block.ndim != 2 or block.shape[0] != len(paths):
                 raise TrainingError(
                     f"adapter {self.name!r} features() returned shape {block.shape} for a "

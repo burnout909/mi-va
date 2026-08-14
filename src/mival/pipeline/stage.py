@@ -190,8 +190,15 @@ def execute(stage: Stage, ctx: StageContext, force: bool = False) -> Dict[str, A
     this return value is for the terminal.
     """
     layout = ctx.layout
+    stale: Optional[str] = None
     if layout.is_complete() and not force:
-        return {"status": "skipped", "config_hash": layout.config_hash, "run_dir": str(layout.run_dir)}
+        stale = _stale_code(layout)
+        if stale is None:
+            return {
+                "status": "skipped",
+                "config_hash": layout.config_hash,
+                "run_dir": str(layout.run_dir),
+            }
 
     layout.create_dirs()
     started_at = _now()
@@ -235,7 +242,7 @@ def execute(stage: Stage, ctx: StageContext, force: bool = False) -> Dict[str, A
                 ),
                 "gpu_hours": None,
             },
-            warnings=list(result.warnings),
+            warnings=([stale] if stale else []) + list(result.warnings),
             errors=errors,
             started_at=started_at,
             ended_at=_now(),
@@ -253,6 +260,37 @@ def execute(stage: Stage, ctx: StageContext, force: bool = False) -> Dict[str, A
         "counts": manifest.counts,
         "exclusions": ctx.ledger.counts(),
     }
+
+
+def _stale_code(layout: RunLayout) -> Optional[str]:
+    """Why a finished run may not be skipped, or ``None`` when it may.
+
+    ``config_hash`` covers the study spec and the input files — not this
+    package's own source. Editing a default here therefore leaves the hash
+    unchanged, and without this check the finished run would be skipped and its
+    old numbers reported as new ones. The comparison errs towards re-running:
+    an unreadable or older-schema manifest means "cannot prove it was this
+    code", which re-runs rather than trusts.
+    """
+    from .manifest import code_identity
+
+    current = code_identity().get("source_sha256")
+    if current is None:  # pragma: no cover - unreadable install
+        return None
+    try:
+        previous = RunManifest.read(layout.manifest_path).code.get("source_sha256")
+    except Exception:
+        return (
+            f"the manifest at {layout.manifest_path} could not be read, so the finished "
+            "run could not be shown to come from this code; it was re-run"
+        )
+    if previous == current:
+        return None
+    return (
+        f"an output already existed for config_hash {layout.config_hash} but it was "
+        f"produced by different mival source ({previous!r} != {current!r}); it was re-run "
+        "rather than skipped"
+    )
 
 
 def _output_ref(path: Path, layout: RunLayout) -> ArtifactRef:

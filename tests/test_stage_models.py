@@ -106,7 +106,7 @@ class FakeAdapter:
         self.forward_calls.append([round(float(score), 6) for score in scores])
         return 1.0 - scores if handle.flip else scores
 
-    def features(self, handle, batch):
+    def features(self, handle, batch, index=0):
         return np.asarray(batch, dtype=np.float64).reshape(len(batch), -1)
 
     def trainable_groups(self, handle):
@@ -912,10 +912,14 @@ class ProbeAdapter(Adapter):
     def load(self, card):
         return ProbeHandle(card)
 
-    def features(self, handle, batch):
+    def features(self, handle, batch, index=0):
         return np.asarray(batch, dtype=np.float64).reshape(len(batch), -1)
 
     def forward(self, handle, batch):
+        if handle.head is None:
+            # Stands in for a checkpoint that publishes its own head, which is
+            # what `inference_only` scores through.
+            return np.clip(np.asarray(batch, dtype=np.float64).mean(axis=(1, 2)), 0.0, 1.0)
         return handle.head.probabilities(self.features(handle, batch))
 
     def with_head(self, handle, head, record):
@@ -965,3 +969,32 @@ def test_the_head_is_refit_per_inner_cv_fold(tmp_path):
     assert internal["folds"] == [0, 1]
     assert internal["early_stopping_fold"] == 1
     assert internal["final_fit_n"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Fitted heads survive the run (decisions: Models 4)
+# ---------------------------------------------------------------------------
+
+
+def test_a_fitted_head_is_written_beside_the_predictions(tmp_path):
+    """A head that lives only in memory cannot be re-applied or interpreted."""
+    from mival.stages.models import HEADS_DIR
+
+    _result, ctx, _adapter = simple_run(
+        tmp_path, "linear_probe", adapter=ProbeAdapter(), hparams={"epochs": 40}
+    )
+    entry = train_log(ctx)[0]
+    assert entry["fitted_head"], "linear_probe must record where its head was written"
+    path = ctx.layout.run_dir / entry["fitted_head"]
+    assert path.is_file()
+    assert HEADS_DIR in str(path)
+
+    stored = np.load(path)
+    assert {"head0.weights", "head0.bias", "head0.mean", "head0.scale"} <= set(stored.files)
+
+
+def test_an_inference_only_arm_writes_no_head(tmp_path):
+    _result, ctx, _adapter = simple_run(
+        tmp_path, "inference_only", adapter=ProbeAdapter()
+    )
+    assert train_log(ctx)[0]["fitted_head"] is None

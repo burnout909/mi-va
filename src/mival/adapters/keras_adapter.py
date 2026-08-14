@@ -11,7 +11,7 @@ backbone; see ``_finetune`` for why.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Mapping, Optional
 
 import numpy as np
@@ -25,10 +25,22 @@ from mival.modelcard import ModelCard
 class KerasHandle:
     members: List[Any]
     card: ModelCard
-    #: Present once a head has been fitted on the frozen representation.
-    head: Optional[LinearHead] = None
+    #: One fitted head per ensemble member, in member order. Empty until a
+    #: ``linear_probe`` has run; the card's own pooling rule combines them.
+    heads: List[LinearHead] = field(default_factory=list)
     #: What the fit did, copied into ``train_log.jsonl`` by the models stage.
     fit_record: Optional[Mapping[str, Any]] = None
+
+
+def _as_two_class(positive: np.ndarray) -> np.ndarray:
+    """``(B,)`` positive-class probability as the ``(B, 2)`` form of the card.
+
+    The card's ``ensemble.method`` is defined over the model's own output
+    columns, so pooling reads the same shape whether the probabilities came
+    from the published head or from a fitted one.
+    """
+    column = np.asarray(positive, dtype=np.float64).reshape(-1, 1)
+    return np.hstack([1.0 - column, column])
 
 
 def pool_ensemble(
@@ -66,41 +78,63 @@ class KerasAdapter(Adapter):
         return KerasHandle(members=members, card=card)
 
     def forward(self, handle: KerasHandle, batch: np.ndarray) -> np.ndarray:
-        if handle.head is not None:
-            return handle.head.probabilities(self.features(handle, batch))
+        if handle.heads:
+            # A probed ensemble pools where the unprobed one pools: at the
+            # probability level, by the card's own rule. Each member's head
+            # emits a positive-class probability, so the two-column form
+            # `pool_ensemble` expects is rebuilt from it.
+            outputs = [
+                _as_two_class(head.probabilities(self.features(handle, batch, index)))
+                for index, head in enumerate(handle.heads)
+            ]
+            return pool_ensemble(outputs, self._pooling(handle), 1)
         arranged = to_model_layout(batch, handle.card.input_contract.layout)
         outputs = [
             np.asarray(member(arranged, training=False)) for member in handle.members
         ]
         return pool_ensemble(
             outputs,
-            handle.card.ensemble.get("method", "none"),
+            self._pooling(handle),
             handle.card.output["positive_index"],
         )
 
-    def features(self, handle: KerasHandle, batch: np.ndarray) -> np.ndarray:
+    def _pooling(self, handle: KerasHandle) -> str:
+        return handle.card.ensemble.get("method", "none")
+
+    def feature_set_names(self, handle: KerasHandle) -> List[str]:
+        """One representation per ensemble member.
+
+        Independently trained members share no coordinate system, so there is
+        no single representation for the ensemble — but there is one per
+        member, and the card already says how member outputs combine. Probing
+        every member and pooling by that rule keeps the ``linear_probe`` arm
+        the same size and shape as the ``inference_only`` arm, which is what
+        makes the spec §2.5 comparison a comparison.
+        """
         if handle.card.feature_layer is None:
             raise NotImplementedError(
                 f"{handle.card.model_id} declares no feature_layer; "
                 "representation extraction is unavailable"
             )
-        if len(handle.members) > 1:
-            # Averaging representations from independently trained members is
-            # meaningless — they share no coordinate system — and silently
-            # probing member 0 would make a "head-retrained" arm a
-            # single-member arm while the inference_only arm keeps all five.
-            # The comparison in spec §2.5 depends on those two being symmetric,
-            # so this is refused rather than guessed.
+        if len(handle.members) > 1 and self._pooling(handle) != "mean_probability":
             raise NotImplementedError(
-                f"{handle.card.model_id} is a {len(handle.members)}-member ensemble "
-                f"({handle.card.ensemble.get('method')!r}); a single representation is "
-                "not defined for it. Probing one member would silently drop the ensemble "
-                "that the inference_only arm uses, so the two arms would no longer be "
-                "comparable."
+                f"{handle.card.model_id} is a {len(handle.members)}-member ensemble whose "
+                f"card declares ensemble.method={self._pooling(handle)!r}. Per-member heads "
+                "can only be pooled by a rule the card states; declare "
+                "'mean_probability' or reduce the card to a single member."
+            )
+        return [f"member{index}" for index in range(len(handle.members))]
+
+    def features(self, handle: KerasHandle, batch: np.ndarray, index: int = 0) -> np.ndarray:
+        names = self.feature_set_names(handle)
+        if not 0 <= index < len(names):
+            raise IndexError(
+                f"{handle.card.model_id} has {len(names)} representations; feature set "
+                f"{index} does not exist"
             )
         import tensorflow as tf
 
-        member = handle.members[0]
+        member = handle.members[index]
         extractor = tf.keras.Model(
             inputs=member.input, outputs=member.get_layer(handle.card.feature_layer).output
         )
@@ -112,15 +146,20 @@ class KerasAdapter(Adapter):
 
     # -- fitting -----------------------------------------------------------
 
-    def with_head(
-        self, handle: KerasHandle, head: LinearHead, record: Mapping[str, Any]
+    def with_heads(
+        self, handle: KerasHandle, heads: List[LinearHead], record: Mapping[str, Any]
     ) -> KerasHandle:
+        if len(heads) != len(handle.members):
+            raise TrainingError(
+                f"{handle.card.model_id}: {len(heads)} heads were fitted for "
+                f"{len(handle.members)} ensemble members"
+            )
         # Members are shared rather than copied: linear_probe never writes to
         # them, and the archived models are large.
         return KerasHandle(
             members=handle.members,
             card=handle.card,
-            head=head,
+            heads=list(heads),
             fit_record=dict(record),
         )
 
