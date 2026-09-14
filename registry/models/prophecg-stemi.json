@@ -40,7 +40,8 @@
       "dtype": "float32"
     },
     "output": {"type": "softmax", "positive_index": 1},
-    "feature_layer": null,
+    "feature_layer": "dense_1",
+    "feature_width": 64,
     "threshold": {
       "value": 0.0768,
       "provenance": "archived PTB-XL revision notebook",

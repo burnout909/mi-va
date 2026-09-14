@@ -4,7 +4,7 @@
 
 | # | Plan | 산출 | 선행 조건 | 상태 |
 |---|---|---|---|---|
-| 1 | [Framework core](2026-08-14-framework-core.md) | ModelCard registry, adapter, op 라이브러리, recipe 컴파일러, input contract gate, golden test | 없음 (합성 신호로 검증) | **구현 완료** (인스턴스 검증 11건 대기) |
+| 1 | [Framework core](2026-08-14-framework-core.md) | ModelCard registry, adapter, op 라이브러리, recipe 컴파일러, input contract gate, golden test | 없음 (합성 신호로 검증) | **구현 완료** (2026-09-14 DICOM-MIVA에서 weights 포함 전 스위트 통과) |
 | 2 | Pipeline runner | 단계 CLI 골격, `config_hash`, run manifest, exclusion ledger, artifact 주소 규칙 | Plan 1 | **구현 완료** |
 | 3 | [Preprocess stage](2026-08-14-plan3-preprocess.md) | perturbation grid, on-the-fly 적용, `preprocess_index`, tensor 저장 | Plan 1, 2 | **구현 완료** |
 | 4 | [Models stage](2026-08-14-plan4-models.md) | training mode 4종, `fit`, threshold 정책, leakage/contamination gate, prediction 출력 | Plan 1, 2 | **구현 완료** (adapter `fit` 포함) |
@@ -29,6 +29,5 @@ Plan 2 이후는 방식을 바꿨다. 계약 계층(Plan 2)은 컨트롤러가 �
 ## 남은 작업
 
 - **Plan 6 (Retrieve/Profile)** — Data4Life 설치 + MI-CDM 접근에 차단됨
-- **PROPHECG `feature_layer`** — 카드에 `null`이라 spec §2.5의 "PROPHECG head-retrained (`linear_probe`)" arm이 아직 실행 불가다. H5의 `model.summary()`에서 penultimate layer 이름을 확인해 카드에 적으면 된다. probe 방식은 결정됐다(멤버별 head + 카드 선언대로 확률 pooling, decisions Models 5)
 - **study.yaml 선언 필요** — 전원 주파수(`powerline_60hz`)와 attribution baseline은 코드가 알 수 없는 사실이라 기본값이 없다 (decisions Preprocess 7, Misclassification 1)
-- **DICOM-MIVA 검증** — Plan 1의 torch 4건 / keras 5건 / golden 2건이 아직 한 번도 실행된 적 없다
+- ~~DICOM-MIVA 검증~~ — 2026-09-14 완료. 서버 `/data/mi-val/mi-va`에 브랜치를 올려 env 3개(mival 3.12 / ecgfounder 3.10 / prophecg 3.9)에서 전 스위트 통과. `tests/golden/expected.json`은 prophecg env에서 생성했다. PROPHECG `feature_layer`는 `dense_1`(64)로 채웠다

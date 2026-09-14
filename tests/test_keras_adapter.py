@@ -45,8 +45,13 @@ def test_identical_rows_produce_identical_probabilities(registry_dir):
     assert probs[0] == pytest.approx(probs[1]) == pytest.approx(probs[2])
 
 
-def test_features_unavailable_when_no_feature_layer(registry_dir):
+def test_features_have_declared_width(registry_dir):
+    """``feature_layer`` names the layer feeding the output head: ``dense_1``,
+    64 wide, identical across the five members (read from the H5 files on
+    2026-09-14). ``dropout_1`` sits between it and the head but is the
+    identity at inference, so the two are the same representation."""
     card = load_card(registry_dir / "prophecg-stemi.json")
     adapter = get_adapter("keras")
-    with pytest.raises(NotImplementedError, match="feature_layer"):
-        adapter.features(adapter.load(card), synthetic_batch())
+    feats = adapter.features(adapter.load(card), synthetic_batch())
+    assert feats.shape == (3, 64)
+    assert np.isfinite(feats).all()
