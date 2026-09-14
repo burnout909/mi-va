@@ -40,5 +40,5 @@ def test_trainable_groups_are_named(registry_dir):
 def test_forward_is_unavailable_without_a_head(registry_dir):
     card = load_card(registry_dir / "ecgfounder.json")
     adapter = get_adapter("torch")
-    with pytest.raises(NotImplementedError, match="no STEMI head"):
+    with pytest.raises(NotImplementedError, match="declares no output.positive_index"):
         adapter.forward(adapter.load(card), synthetic_batch())

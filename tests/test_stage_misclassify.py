@@ -791,6 +791,7 @@ def _run_with_attribution(tmp_path, attribution, subdirectory):
 
 
 def test_no_attribution_is_computed_unless_the_study_declares_one(tmp_path):
+    pytest.importorskip("matplotlib")
     _, _, cases = run_stage(
         tmp_path, dict(ERROR_SPEC, figures=True), inputs={"preprocess_index": _tensor_inputs(tmp_path, "plain")}
     )
@@ -798,6 +799,7 @@ def test_no_attribution_is_computed_unless_the_study_declares_one(tmp_path):
 
 
 def test_a_declared_attribution_without_a_baseline_draws_nothing_and_says_why(tmp_path):
+    pytest.importorskip("matplotlib")
     result, cases, adapter = _run_with_attribution(
         tmp_path, {"registry": str(_registry(tmp_path))}, "nobaseline"
     )
