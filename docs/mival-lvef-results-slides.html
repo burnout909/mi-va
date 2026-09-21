@@ -442,7 +442,16 @@
     <li><strong>O:E ratio</strong>: 관측 사건 수 / 예측 확률 합. CITL의 직관적 표현. 보정 곡선(reliability diagram)과 함께.</li>
     <li><strong>환자 단위 집계</strong>: 환자당 ECG 여러 건이므로 지표를 환자 단위로 먼저 모은 값도 보고(bootstrap은 이미 환자 단위). 비결정성은 seed를 바꾼 반복 실행으로.</li>
   </ul>
-  <p class="meta">이미 있는 것: AUROC · AP(AUPRC) · BA · MCC · Brier · calibration slope/intercept · CITL · net benefit · 환자 단위 bootstrap CI. 회귀는 논문 범위 밖이라 MAE/RMSE/R² 유지.</p>
+  <p class="meta">이미 있는 것: AUROC · AP(AUPRC) · BA · MCC · Brier · calibration slope/intercept · CITL · net benefit · 환자 단위 bootstrap CI</p>
+  <ul>
+    <li class="key"><strong>Regression은 Metrics Reloaded 범위 밖</strong>(저자들이 향후 확장으로 명시). 대신 <strong>TRIPOD+AI</strong>의 판별·보정·효용 3축을 연속형으로 옮긴다. Collins GS, Moons KGM, Dhiman P, et al. <em>TRIPOD+AI statement.</em> BMJ 2024;385:e078378.</li>
+    <li><strong>Calibration slope / intercept (관측 ~ 예측)</strong>: 기울기 1, 절편 0이 이상. 예측이 평균에 몰리면 기울기 &lt; 1로 드러남. TRIPOD+AI가 요구하는 연속 outcome 보정 곡선의 요약.</li>
+    <li><strong>Bias (mean error)</strong>: 예측 − 실제의 평균. 회귀판 CITL. 체계적으로 높게/낮게 부르는지.</li>
+    <li><strong>Lin's CCC (concordance correlation coefficient)</strong>: 상관에 척도·위치 편차까지 반영한 일치도. R²는 순서, CCC는 값 자체.</li>
+    <li><strong>Bland–Altman 한계 일치도</strong>: 평균차 ± 1.96 SD와 그림. 다른 방법으로 잰 같은 양(ECG-AI LVEF vs 심초음파 LVEF)을 비교하는 표준.</li>
+    <li><strong>±5 / ±10 %p 안에 든 비율</strong>: LVEF 판독의 관찰자 간 변동 크기와 같은 단위라 임상적으로 읽기 쉬운 효용 지표.</li>
+  </ul>
+  <p class="meta">이미 있는 것: MAE · RMSE · R² · AUROC@40 (회귀 출력을 40으로 잘라 분류 지표로)</p>
 </section>
 
 </div>
