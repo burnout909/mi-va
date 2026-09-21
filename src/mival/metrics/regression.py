@@ -6,7 +6,6 @@ from typing import Dict, Sequence
 
 import numpy as np
 
-from ._common import expit
 from .discrimination import auroc
 
 METRICS = ("mae", "rmse", "r2")
@@ -34,15 +33,21 @@ def r2(y_true: Sequence, y_pred: Sequence) -> float:
 
 
 def auroc_below(y_true: Sequence, y_pred: Sequence, cut: float) -> float:
-    """AUROC for 'value <= cut', scoring by how far below the cut the prediction falls.
-
-    ``discrimination.auroc`` requires its score in [0, 1] (it is meant for
-    probabilities). ``cut - p`` is an unbounded score, so it is squashed
-    through a sigmoid first; AUROC depends only on rank order, and a sigmoid
-    is strictly monotonic, so the value is unchanged.
-    """
+    """AUROC for 'value <= cut', scoring by how far below the cut the prediction falls."""
     y, p = _arrays(y_true, y_pred)
-    return auroc((y <= cut).astype(int), expit(cut - p))
+    # auroc wants a score in [0, 1] because it is written for probabilities,
+    # and cut - p is unbounded. A sigmoid would bound it but ties every
+    # prediction more than 40 points from the cut (expit clips there), which
+    # changes the rank order AUROC is made of. A min-max rescale over this
+    # slice is bounded and strictly monotone, so no two distinct predictions
+    # become equal. All-equal predictions have no spread to rescale, so they
+    # get the constant 0.5 and auroc reports the 0.5 of a score that ranks
+    # nothing, exactly as the sigmoid did.
+    score = cut - p
+    low, high = float(np.min(score)), float(np.max(score))
+    span = high - low
+    scaled = np.full(score.shape, 0.5) if span == 0.0 else (score - low) / span
+    return auroc((y <= cut).astype(int), scaled)
 
 
 def regression_metrics(y_true: Sequence, y_pred: Sequence, cuts: Sequence[float]) -> Dict[str, float]:
