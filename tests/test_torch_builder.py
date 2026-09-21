@@ -122,3 +122,14 @@ def test_n_outputs_mismatch_is_rejected(tmp_path):
                       builder={"module": "tinymod:Tiny", "kwargs": {"n_in": 4, "n_out": 5}})
     with pytest.raises(ValueError, match="declares 3 outputs"):
         get_adapter("torch").load(card)
+
+
+def test_unknown_returns_name_is_rejected(tmp_path):
+    import torch
+    reference = torch.nn.Linear(4, 3)
+    torch.save({"dense.weight": reference.weight, "dense.bias": reference.bias}, tmp_path / "w.pt")
+    card = write_card(tmp_path, tmp_path / "w.pt", "state_dict",
+                      builder={"module": "tinymod:Tiny", "kwargs": {"n_in": 4, "n_out": 3}},
+                      returns=["logits", "festures"])
+    with pytest.raises(ValueError, match="'tiny'.*'festures'"):
+        get_adapter("torch").load(card)

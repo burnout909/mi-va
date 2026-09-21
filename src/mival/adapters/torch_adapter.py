@@ -51,6 +51,22 @@ class TorchHandle:
 
 
 DEFAULT_RETURNS = ("logits", "features")
+ALLOWED_RETURNS = frozenset({"logits", "features", "ignore"})
+
+
+def _validate_returns(card: ModelCard) -> None:
+    """A misnamed position (e.g. a typo) would silently read as None in ``_module_outputs``.
+
+    Checked once at load rather than on every forward call, since every handle
+    is built through ``load`` first.
+    """
+    names = card.runtime.get("returns", DEFAULT_RETURNS)
+    for name in names:
+        if name not in ALLOWED_RETURNS:
+            raise ValueError(
+                f"{card.model_id!r}: runtime.returns names {name!r}, which is not one of "
+                f"{sorted(ALLOWED_RETURNS)}"
+            )
 
 
 def _module_outputs(handle: "TorchHandle", tensor: Any, module: Any = None) -> Tuple[Optional[Any], Optional[Any]]:
@@ -164,6 +180,7 @@ class TorchAdapter(Adapter):
     def load(self, card: ModelCard) -> TorchHandle:
         import torch
 
+        _validate_returns(card)
         module = build_module(card)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         return TorchHandle(module=module.to(device).eval(), device=device, card=card)
