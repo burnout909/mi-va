@@ -105,6 +105,36 @@ PostgreSQL 예약어라 컬럼 목록에서 인용이 필요하다.
 scripts/  # TODO: 이번 실행 스크립트를 저장소로 옮긴다
 ```
 
+## LVEF 적재 (2026-09-21)
+
+LVEF 과제의 label 원천이다. MIMIC-IV 코어 OMOP에는 LVEF 수치가 없어(measurement·observation
+0건) 협업자가 OMOP measurement 형식으로 만들어 S3에 올렸고, 그것을 `cdm.measurement`에
+append했다.
+
+| 항목 | 값 |
+|---|---|
+| 원본 | `s3://<bucket>/Datasets/MIMIC-IV_CDM/Extension/measurement_lvef_ADD.csv` (2026-09-21 16:44 KST) |
+| 서버 사본 | `/data/mi-val/datasets/micdm-extension/measurement_lvef_ADD.csv`, SHA-256 `ce2d2edf…3b40a2` |
+| manifest | `/data/mi-val/manifests/measurement_lvef_ADD.json` |
+| 행 / 환자 | 147,431 / 74,612 |
+| concept / 단위 / type | 3027172 (LOINC 10230-1) / 8554 (%) / 32817 (EHR) |
+| `measurement_source_value` | `lvef` |
+| `visit_occurrence_id` | 전부 NULL (원 데이터에 hadm_id 없음) |
+| 값 | 0~90, 중앙값 55, 결측 0 |
+
+절차: staging 테이블(`like cdm.measurement`)에 COPY → 컬럼 집합·순서 대조 → `measurement_id`
+충돌 검사(기존 행과 0건) → 단일 트랜잭션 INSERT → staging 삭제 → `ANALYZE cdm.measurement`.
+되돌릴 때는 `measurement_concept_id = 3027172 and measurement_source_value = 'lvef'`로 삭제한다.
+
+ECG와의 연결은 FK가 아니라 `person_id` + 날짜 차이다. ±7일 내 LVEF가 있는 ECG는 241,450건,
+±30일은 329,557건이다. 시간창과 최근접 선택 규칙은 study.yaml의 label 정의로 둔다.
+
+확인이 남은 것:
+
+- (person, datetime) 중복 4쌍 (값이 55/60으로 다른 1쌍 포함)
+- 10% 이하 값 527건 (0.0이 18건). 0.0을 실측으로 볼지 label 정의에서 정한다
+- 협업자에게 원 소스(MIMIC-IV-ECHO 구조화 측정 변수명, 구간값 처리)를 확인한다
+
 ## 남은 것
 
 - [ ] 적재 완료 후 `synchronous_commit = on` 복구

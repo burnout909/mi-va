@@ -86,6 +86,50 @@ CDM이 준 경로에서 파일 부분을 취해 이 root 아래로 해석한다.
 
 - 상태: **의도된 기본값으로 유지**
 
+### 2026-09-21
+
+LVEF 과제용 모델 3종(xECG, HeartWise DeepECG-SL LVEF, EchoNext-Mini)을 DICOM-MIVA에
+반입하면서 발견한 항목이다. 모델 문서는 `docs/models/`에 있다. 코드는 아직 고치지
+않았고 분류만 했다.
+
+#### A-4 · L1 · torch adapter가 ECGFounder 전용 builder를 하드코딩한다
+
+`src/mival/adapters/torch_adapter.py::load`가 `from net1d import Net1D`와 ECGFounder의
+생성자 인자를 코드에 직접 갖고 있다. 두 번째 torch 모델을 넣는 순간 드러났다.
+새 모델 3종의 weights 형식이 서로 다르다.
+
+| 모델 | 형식 | 만드는 법 |
+|---|---|---|
+| HeartWise binary | `torch.jit` | `torch.jit.load` (아키텍처 코드 불필요) |
+| HeartWise 회귀 | state_dict | `EfficientNet1DV2(num_classes=1, expansion_factors=[1,2,2,2,2,2,2])` + 키 이름 변경 |
+| EchoNext-Mini | `{"model": state_dict}` | `ResNet1dWithTabular(7, filter_size=16, num_classes=12)` |
+| xECG | safetensors | `xECG(cls_type, config)` |
+
+모델명이 core에 있는 것은 `tests/test_no_proper_nouns.py`가 막으려는 바로 그것이다.
+카드의 `x-mival`에 `weights_format`(`jit` / `state_dict` / `safetensors`)과
+`builder`(모듈 경로와 인자)를 선언하고 adapter가 그것을 읽게 한다. 회귀 테스트는
+ECGFounder 카드가 기존과 같은 module을 만드는지 확인하는 것으로 충분하다.
+
+- 상태: **수정 대기**
+
+#### A-5 · L1 · 출력 유형에 회귀가 없다
+
+`output.type`이 `logits` / `softmax`뿐이다. HeartWise `LVEF_MSE_SL.pt`는 LVEF %를
+직접 낸다. `positive_index`와 threshold 정책이 의미를 잃고, evaluation 지표도
+AUROC 계열이 아니라 MAE·R²가 된다. 회귀냐 분류냐는 아직 연구 결정 전이므로
+(decisions 참조) 결정 전까지 회귀 체크포인트는 카드에 넣지 않는다.
+
+- 상태: **연구 결정 대기**
+
+#### A-6 · 관찰 · sigmoid를 어디서 취하는가
+
+HeartWise binary 모델은 logit을 내고 저자 wrapper가 sigmoid를 취한다. 현재 카드
+`output.type: logits`가 이 경우를 이미 뜻하므로 L0이다. 다만 EchoNext는 12개 logit
+중 index 0만 LVEF라 `positive_index`가 "여러 출력 중 하나"를 가리키게 된다.
+ECGFounder의 150 logits와 같은 상황이므로 기존 의미와 충돌하지 않는다.
+
+- 상태: **L0, 카드에서 선언**
+
 ---
 
 ## L2 보고 목록
@@ -109,3 +153,43 @@ review CSV는 개별 케이스이고 임상의가 보라고 만든 것이다. �
 - 발견: 2026-08-19, 신촌 접근 조건 확인 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: 신촌 실행이 실제로 준비될 때. MIMIC 단독 실행에는 필요 없다
+
+
+### L2-2 · 코호트 단위 정규화
+
+HeartWise 파이프라인의 첫 전처리는 **배치 전체**의 평균 스펙트럼 파워를
+`PTBXL_POWER_RATIO`에 맞추는 것이다. 현재 `input_contract.scaling`은 레코드 단위
+(`global_zscore`, `per_lead_zscore`)만 있다. 코호트 단위 값은 preprocess 단계의
+산출물이 어느 코호트로 계산됐는지에 따라 달라지므로 `config_hash`에 코호트가
+들어가야 한다. 한 모델에서만 본 것이라 만들지 않는다.
+
+- 임시 조치 후보: 저자 파이프라인으로 전체 코호트를 한 번 스케일링해 그 factor를
+  카드에 상수로 적는다. 그러면 레코드 단위 `scale` op로 환원된다. 이 factor가
+  MIMIC 코호트에 의존한다는 것을 카드에 적어야 한다.
+- 발견: 2026-09-21
+- 상태: **보고됨. 만들지 않음**
+
+### L2-3 · waveform 외 tabular 입력
+
+EchoNext-Mini는 waveform과 함께 연령·성별·기계 계측 5종을 받는다. 현재
+`input_contract`는 waveform 하나만 기술한다. tabular 축은 retrieve(어느 테이블에서
+가져오는가), preprocess(결측 처리·표준화), models(adapter의 forward 서명) 세 단계를
+모두 건드린다.
+
+- 발견: 2026-09-21
+- 상태: **보고됨. 만들지 않음**. EchoNext-Mini를 4개 모델에 포함할지가 이 항목의
+  착수 조건이다.
+
+### L2-4 · 백엔드가 수치를 바꾸는 모델
+
+xECG의 sLSTM은 `cuda` backend(bf16 커스텀 커널)와 `vanilla` backend(float32 torch)
+가 있고, 체크포인트의 파라미터 레이아웃이 backend마다 다르다. 저자 코드는
+vanilla용 변환(`_recurrent_kernel_.permute(0, 2, 1)`)을 갖고 있다. 어느 backend로
+평가했는지가 재현성 축이 되므로 카드 `runtime`에 backend를 적고 manifest에도
+남겨야 한다.
+
+- 발견: 2026-09-21
+- 확인 결과 (2026-09-21): cuda backend 컴파일 성공. vanilla backend는 저자 변환만으로는
+  출력이 다르고(코사인 0.32), bias까지 재배열하면 일치한다(코사인 1.00000, 상대 오차 0.25%).
+  **cuda backend를 정본으로 쓴다.** 카드 `runtime`에 `slstm_backend: cuda`를 적는다.
+- 상태: **보고됨. backend는 카드 값(L0)으로 처리. 새 축은 만들지 않음**
