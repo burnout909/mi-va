@@ -25,6 +25,7 @@ threshold fit.
 
 import json
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -830,6 +831,28 @@ def test_a_missing_tensor_file_is_excluded_as_tensor_missing(tmp_path):
     result, ctx = run_stage(tmp_path, spec, inputs, FakeAdapter())
     assert ctx.ledger.counts() == {"tensor_missing": 1}
     assert result.counts["out"] == len(ROWS) - 1
+
+
+def test_a_relative_tensor_path_resolves_against_the_preprocess_run_dir(tmp_path):
+    """Preprocess writes ``tensor_path`` relative to its own run directory
+    (``artifacts/tensors/...``), so the index must be read the same way, not
+    against whatever the current working directory happens to be."""
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["inference_only"])
+    inputs = build_inputs(tmp_path)
+    run_dir = tmp_path / "preprocess-run"
+    (run_dir / "artifacts").mkdir(parents=True)
+    (tmp_path / "tensors").rename(run_dir / "artifacts" / "tensors")
+    index = read_table(inputs["preprocess_index"])
+    index["tensor_path"] = [
+        str(Path("artifacts") / "tensors" / Path(path).name) for path in index["tensor_path"]
+    ]
+    inputs["preprocess_index"] = run_dir / "artifacts" / "preprocess_index.parquet"
+    write_table(index.to_dict("records"), inputs["preprocess_index"], tuple(index.columns))
+    spec = make_spec(registry, [arm()])
+    result, ctx = run_stage(tmp_path, spec, inputs, FakeAdapter())
+    assert ctx.ledger.counts() == {}
+    assert result.counts["out"] == len(ROWS)
 
 
 def test_labels_are_required_and_the_error_says_how_to_supply_them(tmp_path):

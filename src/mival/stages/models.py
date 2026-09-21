@@ -617,8 +617,14 @@ class ModelsStage(Stage):
         that the ledger sums to the STARD flow (spec §3.6) instead of double
         counting one record under two codes.
         """
-        index = read_table(ctx.input_path("preprocess_index"))
+        index_path = ctx.input_path("preprocess_index")
+        index = read_table(index_path)
         _require_columns(index, PREPROCESS_INDEX_COLUMNS, "preprocess_index")
+        # Preprocess writes tensor_path relative to its own run directory
+        # (``artifacts/tensors/...``), and its index sits in that run's
+        # ``artifacts/``, so a relative path is anchored there — never on the
+        # working directory the stage happens to be launched from.
+        tensor_root = index_path.parent.parent
         splits = read_table(ctx.input_path("cohort_split"))
         _require_columns(splits, COHORT_SPLIT_COLUMNS, "cohort_split")
 
@@ -680,7 +686,7 @@ class ModelsStage(Stage):
             if missing:
                 ctx.ledger.record(image_id, person_id, "label_missing", ",".join(missing))
                 continue
-            tensor_path = str(row["tensor_path"])
+            tensor_path = str(_absolute(row["tensor_path"], tensor_root))
             if not Path(tensor_path).exists():
                 ctx.ledger.record(image_id, person_id, "tensor_missing", tensor_path)
                 continue
@@ -1085,6 +1091,12 @@ def _labels_from(frame: Any) -> Dict[str, Dict[str, Optional[float]]]:
             for column in LABEL_COLUMNS
         }
     return labels
+
+
+def _absolute(path: Any, root: Path) -> Path:
+    """``path`` as written, or under ``root`` when it is relative."""
+    candidate = Path(str(path))
+    return candidate if candidate.is_absolute() else root / candidate
 
 
 def _as_int(value: Any) -> Optional[int]:
