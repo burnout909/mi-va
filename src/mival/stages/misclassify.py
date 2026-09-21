@@ -1,4 +1,8 @@
-"""Misclassification stage (spec §4.6). Implemented by Plan 7.
+"""EXCLUDED 2026-09-22: this stage is unregistered in mival.pipeline.stage (see
+_UNBUILT) and `mival run misclassify` refuses to run it. The code is kept as
+written for when per-model misclassification review is settled.
+
+Misclassification stage (spec §4.6). Implemented by Plan 7.
 
 This is the implementation of a **medical algorithmic audit** (Liu, Glocker,
 McCradden, Ghassemi, Denniston, Oakden-Rayner, *Lancet Digital Health* 2022).

@@ -77,7 +77,7 @@ def test_json_specs_are_accepted(tmp_path):
 def test_cli_lists_only_runnable_stages(capsys):
     assert main(["stages"]) == 0
     assert capsys.readouterr().out.split() == [
-        "retrieve", "profile", "preprocess", "models", "evaluate", "misclassify",
+        "retrieve", "profile", "preprocess", "models", "evaluate",
     ]
 
 

@@ -179,7 +179,7 @@
 <section class="slide">
   <h2>파이프라인</h2>
   <figure class="scroll">
-    <svg viewBox="0 0 960 260" role="img" aria-label="ModelCard 와 study.yaml 이 6단계 파이프라인으로 들어가고, 각 단계가 산출물 파일을 낸다">
+    <svg viewBox="0 0 960 260" role="img" aria-label="ModelCard 와 study.yaml 이 5단계 파이프라인으로 들어가고, 각 단계가 산출물 파일을 낸다">
       <g font-family="var(--sans)">
         <rect x="8" y="16" width="188" height="52" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2.4"/>
         <text x="102" y="40" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">ModelCard JSON ×4</text>
@@ -202,8 +202,6 @@
           <text x="640" y="117" text-anchor="middle" fill="var(--ink)">4 Models</text>
           <rect x="700" y="88" width="112" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
           <text x="756" y="117" text-anchor="middle" fill="var(--ink)">5 Evaluate</text>
-          <rect x="820" y="88" width="132" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
-          <text x="886" y="117" text-anchor="middle" fill="var(--ink)">6 Misclassify</text>
         </g>
         <g font-size="10.5" font-family="var(--mono)" fill="var(--ink-3)">
           <text x="296" y="164" text-anchor="middle">cohort_index</text>
@@ -218,13 +216,11 @@
           <text x="640" y="194" text-anchor="middle">heads/</text>
           <text x="756" y="164" text-anchor="middle">metrics_long</text>
           <text x="756" y="179" text-anchor="middle">figures/</text>
-          <text x="886" y="164" text-anchor="middle">cases.parquet</text>
-          <text x="886" y="179" text-anchor="middle">review_template</text>
         </g>
         <g stroke="var(--rule)" stroke-width="1.2">
           <line x1="296" y1="140" x2="296" y2="152"/><line x1="408" y1="140" x2="408" y2="152"/>
           <line x1="524" y1="140" x2="524" y2="152"/><line x1="640" y1="140" x2="640" y2="152"/>
-          <line x1="756" y1="140" x2="756" y2="152"/><line x1="886" y1="140" x2="886" y2="152"/>
+          <line x1="756" y1="140" x2="756" y2="152"/>
         </g>
         <text x="600" y="240" text-anchor="middle" font-size="12" fill="var(--ink-3)">각 실행은 runs/lvef/&lt;stage&gt;/&lt;config_hash&gt;/ 에 manifest(코드 커밋, 입력 체크섬)와 함께 남는다</text>
       </g>
@@ -265,13 +261,12 @@
   <h2>study.yaml</h2>
   <figure id="stfig">
     <div class="hint">단계를 누르면 studies/lvef/study.yaml 의 그 블록이 나옵니다</div>
-    <div class="knobs six" id="stknobs">
+    <div class="knobs five" id="stknobs">
       <button class="knob" data-s="retrieve" aria-selected="true">retrieve<small>DB → 코호트</small></button>
       <button class="knob" data-s="profile">profile<small>split</small></button>
       <button class="knob" data-s="preprocess">preprocess<small>tensor</small></button>
       <button class="knob" data-s="models">models<small>6 arm</small></button>
       <button class="knob" data-s="evaluate">evaluate<small>지표</small></button>
-      <button class="knob" data-s="misclassify">misclassify<small>사례</small></button>
     </div>
     <div class="code" id="stcode" style="min-height:230px"></div>
   </figure>
@@ -349,7 +344,7 @@
     </table>
   </figure>
   <ul>
-    <li class="key">샘플은 <em>6단계가 실제 데이터로 끝까지 도는가</em>를 보는 용도입니다. 뒤의 수치는 성능 추정치가 아닙니다. split은 전체 <code>cohort_split</code>을 조인했으므로 누수는 없습니다.</li>
+    <li class="key">샘플은 <em>5단계가 실제 데이터로 끝까지 도는가</em>를 보는 용도입니다. 뒤의 수치는 성능 추정치가 아닙니다. split은 전체 <code>cohort_split</code>을 조인했으므로 누수는 없습니다.</li>
   </ul>
 </section>
 
@@ -446,9 +441,7 @@ var ST = {
   models:
 '<span class="k">models</span>:\n  <span class="k">registry</span>: registry/models\n  <span class="k">cohort_sources</span>: [mimic-iv-ecg]         <span class="c"># 카드의 pretraining_corpora 와 겹치면 오염 표시</span>\n  <span class="k">batch_size</span>: 64\n  <span class="k">arms</span>:\n    - {<span class="k">model_id</span>: heartwise-lvef-binary,     <span class="k">training_mode</span>: inference_only, <span class="k">label_def</span>: primary}\n    - {<span class="k">model_id</span>: heartwise-lvef-regression, <span class="k">training_mode</span>: inference_only, <span class="h">label_def: value</span>}\n    - {<span class="k">model_id</span>: ecgfounder, <span class="k">training_mode</span>: linear_probe, <span class="k">label_def</span>: primary, <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: ecgfounder, <span class="k">training_mode</span>: linear_probe, <span class="h">label_def: value</span>,   <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: xecg,       <span class="k">training_mode</span>: linear_probe, <span class="k">label_def</span>: primary, <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: xecg,       <span class="k">training_mode</span>: linear_probe, <span class="h">label_def: value</span>,   <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n<span class="c"># 회귀는 새 축이 아니다. label_def=value 인 arm 은 objective 가 mse, head 의 link 가 identity 가 된다</span>',
   evaluate:
-'<span class="k">evaluate</span>:\n  <span class="k">outcomes</span>: {<span class="k">primary</span>: null}              <span class="c"># 예측 파일의 정답을 그대로</span>\n  <span class="h">regression_cuts</span>: [40]                  <span class="h"># 회귀 예측을 40 으로 잘라 분류 지표(auroc_below@40)로도 읽는다</span>\n  <span class="k">bootstrap_replicates</span>: 2000            <span class="c"># 환자 단위 재표본</span>\n  <span class="k">figures</span>: true                          <span class="c"># stard_flow, roc_pr, calibration, decision_curve, regression_scatter</span>\n<span class="c"># threshold_policy 기본 refit_sens95: dev 에서 민감도 ≥ 95% 중 특이도 최대</span>',
-  misclassify:
-'<span class="k">misclassify</span>:\n  <span class="k">selectors</span>:\n    - {<span class="k">name</span>: heartwise_binary_errors, <span class="k">type</span>: error, <span class="k">k</span>: 20,\n       <span class="k">pattern</span>: {<span class="k">model_id</span>: heartwise-lvef-binary, <span class="k">training_mode</span>: inference_only,\n                 <span class="k">label_def</span>: primary, <span class="k">perturbation_id</span>: baseline, <span class="h">split: test</span>}}\n    - {<span class="k">name</span>: heartwise_binary_boundary, <span class="k">type</span>: boundary, <span class="k">epsilon</span>: 0.05, <span class="k">k</span>: 20,\n       <span class="k">pattern</span>: {… 같은 pattern …}}\n    <span class="c"># ecgfounder_probe_*, xecg_probe_* : model_id 와 training_mode: linear_probe 만 다름</span>\n<span class="c"># pattern 은 한 모델만 가리킨다. a/b 의 model_id 가 다른 contrast 는 이 study 에 없다</span>'
+'<span class="k">evaluate</span>:\n  <span class="k">outcomes</span>: {<span class="k">primary</span>: null}              <span class="c"># 예측 파일의 정답을 그대로</span>\n  <span class="h">regression_cuts</span>: [40]                  <span class="h"># 회귀 예측을 40 으로 잘라 분류 지표(auroc_below@40)로도 읽는다</span>\n  <span class="k">bootstrap_replicates</span>: 2000            <span class="c"># 환자 단위 재표본</span>\n  <span class="k">figures</span>: true                          <span class="c"># stard_flow, roc_pr, calibration, decision_curve, regression_scatter</span>\n<span class="c"># threshold_policy 기본 refit_sens95: dev 에서 민감도 ≥ 95% 중 특이도 최대</span>'
 };
 var stcode = document.getElementById('stcode');
 var stknobs = [].slice.call(document.querySelectorAll('#stknobs .knob'));

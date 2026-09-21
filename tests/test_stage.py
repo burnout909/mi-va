@@ -75,7 +75,13 @@ def test_stage_order_covers_all_six_stages_of_spec_section_3_3():
 
 
 def test_stage_names_lists_only_runnable_stages():
-    assert stage_names() == ["retrieve", "profile", "preprocess", "models", "evaluate", "misclassify"]
+    # misclassify is in STAGE_ORDER but unregistered (excluded 2026-09-22).
+    assert stage_names() == ["retrieve", "profile", "preprocess", "models", "evaluate"]
+
+
+def test_the_excluded_misclassify_stage_fails_loudly():
+    with pytest.raises(KeyError, match="misclassify.*excluded"):
+        get_stage("misclassify")
 
 
 def test_unknown_stage_name_raises_a_clear_key_error():

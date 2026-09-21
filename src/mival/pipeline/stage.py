@@ -37,13 +37,18 @@ _STAGES: Dict[str, str] = {
     "preprocess": "mival.stages.preprocess:PreprocessStage",
     "models": "mival.stages.models:ModelsStage",
     "evaluate": "mival.stages.evaluate:EvaluateStage",
-    "misclassify": "mival.stages.misclassify:MisclassifyStage",
+    # "misclassify": "mival.stages.misclassify:MisclassifyStage",
+    # Excluded 2026-09-22 (research decision): the stage is hard to modularise
+    # per model, so it stays out of the pipeline until that is settled. The
+    # module and its tests are kept but unregistered; see _UNBUILT.
 }
 
 # Kept here (even though empty now) so that `mival stages` can keep
 # distinguishing a typo from a stage that is deliberately not built yet, the
 # moment a future stage needs it.
-_UNBUILT: Dict[str, str] = {}
+_UNBUILT: Dict[str, str] = {
+    "misclassify": "excluded from the pipeline (2026-09-22 decision); its module is kept but unregistered",
+}
 
 # Spec §3.3 pipeline order, including the parts not yet built.
 STAGE_ORDER = ("retrieve", "profile", "preprocess", "models", "evaluate", "misclassify")

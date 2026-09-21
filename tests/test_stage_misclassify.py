@@ -13,6 +13,12 @@ from pathlib import Path
 
 import pytest
 
+pytest.skip(
+    "misclassify is excluded from the pipeline (2026-09-22 decision); the module is kept "
+    "unregistered and its tests are parked with it",
+    allow_module_level=True,
+)
+
 pytest.importorskip("pyarrow")
 
 import pandas as pd
