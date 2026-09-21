@@ -170,6 +170,26 @@ HeartWise의 `1/0.0048` 상수(저자 `efficientnet_wrapper.mhi_factor`)를 카�
 
 ---
 
+### 2026-09-22
+
+#### A-10 · L1 · models가 상대 `tensor_path`를 작업 디렉터리 기준으로 읽었다
+
+preprocess는 `tensor_path`를 자기 run 디렉터리 기준 상대 경로
+(`artifacts/tensors/<recipe>/<id>.npy`)로 쓰고, models는 그 문자열을 그대로
+`Path(...).exists()`로 검사했다. 첫 실제 models 실행(1,000건 샘플)에서
+5,000행 전부가 `tensor_missing`으로 제외돼 "preprocess run supplied was
+compiled for []"로 죽었다. 테스트는 절대 경로만 써 왔기 때문에 드러나지 않았다.
+
+고침(commit `d2137e8`): `_load_records`가 preprocess_index 파일이 있는 run
+디렉터리(`<run_dir>/artifacts/` 의 부모)를 기준으로 상대 경로를 붙인다. 절대
+경로는 그대로 둔다. 회귀 테스트는 index를 `run/artifacts/` 아래에 두고 상대
+경로로 채운 뒤 제외 0건을 확인한다.
+
+- 발견: 2026-09-22 샘플 models 실행
+- 상태: 고침
+
+---
+
 ## L2 보고 목록
 
 즉시 만들지 않고 여기 올린다. 한 건을 보고 지은 추상은 그 한 건에만 맞으므로,
