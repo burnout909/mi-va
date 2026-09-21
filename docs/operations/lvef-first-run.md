@@ -101,12 +101,12 @@ dispatch가 준 기대치(counts.in 796,617)와 정확히 일치한다. `file_mi
 | `label_sens1` 양성 | 54,817 |
 | `label_sens2` 양성 | 44,056 |
 
-`label_sens2`가 `label_primary`와 완전히 같은 것은 버그가 아니다. ±30일
-창에서 "가장 가까운" 값을 고르는 규칙은, 이미 ±7일 안에서 최근접을 찾은
-레코드라면 항상 같은 값을 고른다(±7일 안의 최근접이 존재하면 그보다 먼
-값이 전체 최근접이 될 수 없다). `label_sens2`는 retrieve가 남긴 레코드가
-아니라 애초에 `label_missing`으로 빠진 레코드를 구분하는 축이라, 지금
-`cohort_index`에는 차이가 보이지 않는다.
+`label_sens2`가 `label_primary`와 완전히 같은 것은 **설계 결함이다(ledger A-9)**.
+`label_missing`이 좁은 창에서 먼저 적용된 뒤에야 `attach_labels`가 넓은 창
+라벨을 계산하므로, 살아남은 모든 행의 ±30일 최근접은 정의상 ±7일 최근접과
+같아진다. 즉 이 컬럼은 지금 구조에서 어떤 코호트에서도 `label_primary`와
+다를 수 없고, 민감도 축으로서 아무것도 재지 않는다. 처리 방향 두 가지는
+ledger A-9에 적었고 연구 결정을 기다린다.
 
 `label_value_quantiles`: p5=20.0, p25=45.0, p50=55.0, p75=60.0, p95=71.0.
 
@@ -174,6 +174,22 @@ model 'xecg': perturbation axis 'resample' has baseline level 500 above the inpu
 로컬에서 `mival.perturbation.check_grid_against_contract`를 5개 카드에 대해
 직접 불러 먼저 확인한 것과 서버 실행에서 나온 경고가 정확히 같다. 500 Hz
 기준(ecgfounder, prophecg-stemi)은 경고가 없다.
+
+## 다음 실행 전 알아둘 것
+
+**models는 env마다 따로 돌려야 한다.** `ModelsStage.run`은 study.yaml의 arm을
+한 프로세스에서 전부 실행하는데, 카드의 `runtime.env`가 서로 다르다.
+
+| env | python / torch | arm |
+|---|---|---|
+| `/data/mi-val/envs/ecgfounder` | 3.10 / torch 2.13 | `heartwise-lvef-binary` inference_only, `heartwise-lvef-regression` inference_only, `ecgfounder` linear_probe (primary, value) |
+| `/data/mi-val/envs/xecg` | 3.12 / torch 2.8 | `xecg` linear_probe (primary, value) |
+
+그러므로 `studies/lvef/study.yaml`의 arm 6개를 `mival run models` 한 번으로는
+돌릴 수 없다. study를 쪼개지는 않는다. 대신 실행할 때 env별로 나눠서 돌리고
+(`--arm` 같은 선택 수단이 없으므로 그때 방법을 정한다), 각 실행의 manifest를
+따로 남긴다. `runtime.env`/`runtime.python`은 카드에 선언만 돼 있고 강제하는
+코드가 없다는 것은 ledger L2-5에 보고했다.
 
 ## 발견한 문제
 
