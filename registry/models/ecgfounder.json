@@ -29,15 +29,25 @@
       "layout": "lead_time",
       "dtype": "float32"
     },
-    "output": {"type": "logits", "n_outputs": 150, "positive_index": null},
+    "output": {"type": "logits", "n_outputs": 150, "positive_index": null, "weight_key": "dense.weight"},
     "feature_layer": "backbone",
     "threshold": {},
-    "runtime": {"framework": "torch==2.13.0+cu130", "python": "3.10.20", "device": "cuda"},
+    "runtime": {"framework": "torch==2.13.0+cu130", "python": "3.10.20", "device": "cuda", "returns": ["logits", "features"]},
     "training_modes_supported": ["linear_probe", "partial_unfreeze", "full_finetune"],
     "pretraining_corpora": ["harvard-emory-ecg"],
     "code_path": "/opt/ecgfounder",
     "code_commit": "68d25f25e323a4a423b9d9e8ea2e0af3f234bf22",
     "feature_width": 1024,
+    "weights_format": "checkpoint",
+    "state_dict_key": "state_dict",
+    "builder": {
+      "module": "net1d:Net1D",
+      "kwargs": {"in_channels": 12, "base_filters": 64, "ratio": 1,
+                 "filter_list": [64, 160, 160, 400, 400, 1024, 1024],
+                 "m_blocks_list": [2, 2, 2, 3, 3, 4, 4], "kernel_size": 16, "stride": 2,
+                 "groups_width": 16, "n_classes": 150, "use_bn": false, "use_do": false,
+                 "return_features": true, "verbose": false}
+    },
     "notes": "This checkpoint emits no STEMI probability. A STEMI head must be fitted; inference_only is therefore not a supported training mode."
   }
 }
