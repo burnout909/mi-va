@@ -216,12 +216,20 @@ class TorchAdapter(Adapter):
         publishes no probability for this outcome, and ``inference_only`` is
         genuinely unavailable for it — that is a property of the model, so the
         error says which model and what to do instead. A regression card names
-        no ``positive_index`` at all, so that check does not apply to it.
+        no ``positive_index`` at all, so that check does not apply to it, but it
+        must name a ``value_index`` instead, checked the same way.
         """
         import torch
 
         kind = handle.card.output.get("type", "logits")
-        if kind != "regression" and handle.card.output.get("positive_index") is None:
+        if kind == "regression":
+            if handle.card.output.get("value_index") is None:
+                raise NotImplementedError(
+                    f"{handle.card.model_id!r} declares output.type 'regression' but no "
+                    "output.value_index, so its checkpoint has no column to read a value "
+                    "from. Declare which output column is the value."
+                )
+        elif handle.card.output.get("positive_index") is None:
             raise NotImplementedError(
                 f"{handle.card.model_id!r} declares no output.positive_index, so its "
                 "checkpoint emits no probability for this outcome. Fit a head with "

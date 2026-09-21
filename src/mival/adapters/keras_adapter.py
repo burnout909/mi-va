@@ -95,11 +95,16 @@ class KerasAdapter(Adapter):
         outputs = [
             np.asarray(member(arranged, training=False)) for member in handle.members
         ]
-        column = (
-            handle.card.output["value_index"]
-            if handle.card.output.get("type") == "regression"
-            else handle.card.output["positive_index"]
-        )
+        if handle.card.output.get("type") == "regression":
+            column = handle.card.output.get("value_index")
+            if column is None:
+                raise NotImplementedError(
+                    f"{handle.card.model_id} declares output.type 'regression' but no "
+                    "output.value_index, so its checkpoint has no column to read a value "
+                    "from. Declare which output column is the value."
+                )
+        else:
+            column = handle.card.output["positive_index"]
         return pool_ensemble(outputs, self._pooling(handle), column)
 
     def _pooling(self, handle: KerasHandle) -> str:

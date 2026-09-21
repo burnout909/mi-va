@@ -55,3 +55,15 @@ def test_features_have_declared_width(registry_dir):
     feats = adapter.features(adapter.load(card), synthetic_batch())
     assert feats.shape == (3, 64)
     assert np.isfinite(feats).all()
+
+
+def test_regression_card_without_value_index_names_the_model(registry_dir):
+    """No real forward pass: the fake member is never inspected before the check fires."""
+    from mival.adapters.keras_adapter import KerasHandle
+
+    card = load_card(registry_dir / "prophecg-stemi.json")
+    card.output.update({"type": "regression", "value_index": None})
+    handle = KerasHandle(members=[lambda arranged, training=False: np.zeros((3, 1))], card=card)
+    adapter = get_adapter("keras")
+    with pytest.raises(NotImplementedError, match="prophecg-stemi.*value_index"):
+        adapter.forward(handle, synthetic_batch())
