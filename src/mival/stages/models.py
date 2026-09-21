@@ -109,6 +109,13 @@ TEST_SPLIT = "test"
 #: Derived from the pinned schema so the two can never drift apart.
 LABEL_COLUMNS = tuple(name for name in PREDICTION_COLUMNS if name.startswith("label_"))
 
+#: The 0/1 label columns. Every cohort carries these; ``label_value`` is the
+#: regression target and a classification-only cohort has no reason to hold it,
+#: so it is read as NaN when absent rather than demanded of every cohort_index.
+BINARY_LABEL_COLUMNS = tuple(
+    name for name in LABEL_COLUMNS if name != "label_" + REGRESSION_LABEL_DEF
+)
+
 #: ``label_def`` is a run_key axis (spec §3.4) whose values name label columns.
 DEFAULT_LABEL_DEF = "primary"
 
@@ -638,6 +645,18 @@ class ModelsStage(Stage):
         # that all arms are compared on one cohort rather than on per-arm
         # cohorts whose denominators silently differ.
         needed = sorted({arm.label_column for arm in spec.arms})
+        # label_value is optional on a cohort, so a regression arm run against a
+        # cohort that has none would otherwise exclude every record one by one
+        # and surface as "no dev records", which names the wrong problem.
+        if any(arm.is_regression for arm in spec.arms) and all(
+            row.get(_REGRESSION_LABEL_COLUMN) is None for row in labels.values()
+        ):
+            raise ValueError(
+                f"a regression arm needs {_REGRESSION_LABEL_COLUMN!r}, but no record in "
+                "the label source carries one: the column is absent or every value is "
+                "null. Supply a cohort_index whose "
+                f"{_REGRESSION_LABEL_COLUMN!r} column is populated (spec §4.1)."
+            )
 
         wanted = set(wanted)
         rows = [row for row in index.to_dict("records") if str(row["model_id"]) in wanted]
@@ -696,7 +715,7 @@ class ModelsStage(Stage):
         if "cohort_index" in ctx.inputs:
             frame = read_table(ctx.input_path("cohort_index"))
             _require_columns(
-                frame, ("image_occurrence_id",) + LABEL_COLUMNS, "cohort_index"
+                frame, ("image_occurrence_id",) + BINARY_LABEL_COLUMNS, "cohort_index"
             )
             return _labels_from(frame)
         raise KeyError(

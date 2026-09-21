@@ -1046,6 +1046,36 @@ def test_regression_arm_on_a_classification_card_is_rejected(tmp_path):
         stage.run(ctx)
 
 
+def _drop_label_value(inputs):
+    """Rewrite the cohort_index without its label_value column."""
+    frame = read_table(inputs["cohort_index"])
+    frame.drop(columns=["label_value"]).to_parquet(inputs["cohort_index"], index=False)
+    return inputs
+
+
+def test_a_cohort_without_label_value_still_runs_a_classification_arm(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["inference_only"])
+    inputs = _drop_label_value(build_inputs(tmp_path))
+    spec = make_spec(registry, [arm()])
+    result, ctx = run_stage(tmp_path, spec, inputs, FakeAdapter())
+
+    assert ctx.ledger.counts() == {}
+    assert result.counts["out"] == len(ROWS)
+    frame = read_table(sorted(ctx.layout.artifact("predictions").glob("*.parquet"))[0])
+    assert frame["label_value"].isna().all()
+
+
+def test_a_regression_arm_without_label_value_names_the_column(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["inference_only"], output=REGRESSION_OUTPUT)
+    inputs = _drop_label_value(build_inputs(tmp_path))
+    spec = make_spec(registry, [arm(label_def="value")])
+    stage, ctx = make_context(tmp_path, spec, inputs, FakeAdapter())
+    with pytest.raises(ValueError, match="label_value"):
+        stage.run(ctx)
+
+
 def test_linear_probe_regression_selects_by_neg_mae(tmp_path):
     registry = tmp_path / "registry"
     write_card(registry, "toy-a", modes=["linear_probe"], output=REGRESSION_OUTPUT)
