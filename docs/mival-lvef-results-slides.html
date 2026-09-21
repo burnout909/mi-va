@@ -425,7 +425,7 @@
 
 <!-- 14 -->
 <section class="slide">
-  <h2>추가할 metrics</h2>
+  <h2>추가할 metrics (Metrics Reloaded)</h2>
   <ul>
     <li><strong>Reference</strong>: Maier-Hein L, Reinke A, Godau P, et al. <em>Metrics reloaded: recommendations for image analysis validation.</em> Nat Methods 2024;21:195–212. doi:10.1038/s41592-023-02151-z</li>
     <li class="key">우리 문제의 fingerprint: <strong>image-level classification</strong>, 이진, 클래스 점수 있음, 양성 24%(불균형), 결정 규칙은 <em>민감도 95% 목표값</em>, 환자당 ECG 여러 건(비독립). 아래는 이 fingerprint로 S2~S5를 따라갔을 때 지금 없는 지표.</li>
@@ -443,8 +443,16 @@
     <li><strong>환자 단위 집계</strong>: 환자당 ECG 여러 건이므로 지표를 환자 단위로 먼저 모은 값도 보고(bootstrap은 이미 환자 단위). 비결정성은 seed를 바꾼 반복 실행으로.</li>
   </ul>
   <p class="meta">이미 있는 것: AUROC · AP(AUPRC) · BA · MCC · Brier · calibration slope/intercept · CITL · net benefit · 환자 단위 bootstrap CI</p>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <h2>추가할 metrics (TRIPOD+AI)</h2>
   <ul>
-    <li class="key"><strong>Regression은 Metrics Reloaded 범위 밖</strong>(저자들이 향후 확장으로 명시). 대신 <strong>TRIPOD+AI</strong>의 판별·보정·효용 3축을 연속형으로 옮긴다. Collins GS, Moons KGM, Dhiman P, et al. <em>TRIPOD+AI statement.</em> BMJ 2024;385:e078378.</li>
+    <li><strong>Reference</strong>: Collins GS, Moons KGM, Dhiman P, et al. <em>TRIPOD+AI statement: updated guidance for reporting clinical prediction models that use regression or machine learning methods.</em> BMJ 2024;385:e078378. doi:10.1136/bmj-2023-078378</li>
+    <li class="key">Regression은 Metrics Reloaded 범위 밖(저자들이 향후 확장으로 명시). TRIPOD+AI는 <strong>regression과 ML을 한 틀로</strong> 다루며 최소 요구가 판별·보정(보정 곡선 포함)·임상 효용이다. 아래는 이 3축을 연속 outcome(LVEF %)으로 옮겼을 때 지금 없는 지표.</li>
+  </ul>
+  <ul>
     <li><strong>Calibration slope / intercept (관측 ~ 예측)</strong>: 기울기 1, 절편 0이 이상. 예측이 평균에 몰리면 기울기 &lt; 1로 드러남. TRIPOD+AI가 요구하는 연속 outcome 보정 곡선의 요약.</li>
     <li><strong>Bias (mean error)</strong>: 예측 − 실제의 평균. 회귀판 CITL. 체계적으로 높게/낮게 부르는지.</li>
     <li><strong>Lin's CCC (concordance correlation coefficient)</strong>: 상관에 척도·위치 편차까지 반영한 일치도. R²는 순서, CCC는 값 자체.</li>
