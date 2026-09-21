@@ -135,10 +135,39 @@ ECG와의 연결은 FK가 아니라 `person_id` + 날짜 차이다. ±7일 내 L
 - 10% 이하 값 527건 (0.0이 18건). 0.0을 실측으로 볼지 label 정의에서 정한다
 - 협업자에게 원 소스(MIMIC-IV-ECHO 구조화 측정 변수명, 구간값 처리)를 확인한다
 
+## 인덱스
+
+retrieve의 lateral join이 `cdm.measurement`를 person_id로 훑는다. 이 테이블에는 전혀
+인덱스가 없었고(`cdm.measurement`, `cdm.image_occurrence` 둘 다), LVEF concept만 세는
+단순 count도 2분을 넘겼다(전체 스캔).
+
+| 항목 | 값 |
+|---|---|
+| 이름 | `measurement_lvef_person_date_idx` |
+| 정의 | `CREATE INDEX measurement_lvef_person_date_idx ON cdm.measurement USING btree (person_id, measurement_date) WHERE (measurement_concept_id = 3027172)` |
+| 날짜 | 2026-09-21 |
+| 빌드 시간 | 6분 45초 (15:06:35Z 시작, 15:13:20Z `CREATE INDEX` 완료, `pg_stat_progress_create_index`로 진행률 확인, scanning table 단계가 대부분) |
+| 크기 | 4552 kB |
+| 대상 테이블 크기 | `cdm.measurement` 54 GB (인덱스 전혀 없음) |
+
+`explain`으로 retrieve SQL(schema=cdm, label_concept_id=3027172, window_days=7,
+modality_concept_id=4145308)을 확인했다. lateral 서브쿼리가 이 인덱스를 쓴다:
+
+```
+->  Index Scan using measurement_lvef_person_date_idx on measurement m_1
+      Index Cond: (person_id = i.person_id)
+      Filter: ((value_as_number IS NOT NULL) AND (abs((measurement_date - i.image_occurrence_date)) <= 7))
+```
+
+바깥 `image_occurrence`는 `modality_concept_id`로 거르는 조건에 인덱스가 없어 Seq Scan이지만,
+한 번만 도는 스캔이라 비용이 lateral 쪽보다 훨씬 작다(cost 53741 대 801570 전체 플랜).
+`image_occurrence`에 인덱스가 필요해지면 별도로 판단한다.
+
 ## 남은 것
 
 - [ ] 적재 완료 후 `synchronous_commit = on` 복구
-- [ ] primary key와 index 생성 (retrieve 쿼리 확정 후)
+- [x] `cdm.measurement`에 `measurement_lvef_person_date_idx` 생성 (2026-09-21, 위 "인덱스" 참고).
+      `cdm.image_occurrence`는 아직 인덱스가 없다
 - [ ] `ANALYZE`
 - [ ] 실패한 5개 테이블 재적재: `note_nlp`, `vocabulary`, `specimen`,
       `fact_relationship`, `observation` (전부 스키마 수정 후 대상)
