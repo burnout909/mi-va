@@ -100,6 +100,14 @@ class Adapter:
         payload = parse_fit_data(data)
         # pos_weight='balanced' divides by n_pos, which is meaningless once
         # labels are continuous; a regression fit never needs class counts.
+        # Silently resolving it to 1.0 would let a study record a setting that
+        # never took effect, so an arm that asks for one is rejected instead.
+        if payload.objective != "bce" and hparams.get("pos_weight", 1.0) != 1.0:
+            raise ValueError(
+                f"pos_weight={hparams['pos_weight']!r} weighs the positive class of a "
+                f"classification loss, but this arm fits objective {payload.objective!r} "
+                "against a continuous target; drop pos_weight from its hparams"
+            )
         counts = (payload.train.n_pos, payload.train.n_neg) if payload.objective == "bce" else (1, 1)
         hp = parse_hparams(hparams, mode, *counts)
         if mode == "linear_probe":

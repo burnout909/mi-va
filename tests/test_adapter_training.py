@@ -560,6 +560,22 @@ def test_linear_probe_with_mse_recovers_the_coefficients():
     assert fitted["fit_record"]["validation_metric"] == "mae"
 
 
+def test_pos_weight_on_a_regression_arm_is_rejected():
+    # Resolving it to 1.0 would record a setting that never took effect.
+    adapter = FakeAdapter()
+    for given in ("balanced", 3.0):
+        with pytest.raises(ValueError, match="pos_weight"):
+            adapter.fit("handle", make_regression_data(), "linear_probe",
+                        {"epochs": 2, "pos_weight": given})
+
+
+def test_pos_weight_left_at_its_default_is_fine_on_a_regression_arm():
+    adapter = FakeAdapter()
+    fitted = adapter.fit("handle", make_regression_data(), "linear_probe",
+                         {"epochs": 2, "pos_weight": 1.0})
+    assert fitted["fit_record"]["objective"] == "mse"
+
+
 def test_validation_score_for_mse_is_negative_mae():
     score = validation_score(np.array([1.0, 3.0]), np.array([2.0, 2.0]), "auroc", "t", objective="mse")
     assert score.primary == -1.0
