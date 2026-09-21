@@ -17,17 +17,17 @@ PROPHECG = InputContract.from_dict(
     }
 )
 
-ECGFOUNDER = InputContract.from_dict(
-    {
-        "leads": list(LEADS_12),
-        "sampling_rate_hz": 500,
-        "duration_s": 10,
-        "unit": "mV",
-        "scaling": "global_zscore",
-        "layout": "lead_time",
-        "dtype": "float32",
-    }
-)
+ECGFOUNDER_DICT = {
+    "leads": list(LEADS_12),
+    "sampling_rate_hz": 500,
+    "duration_s": 10,
+    "unit": "mV",
+    "scaling": "global_zscore",
+    "layout": "lead_time",
+    "dtype": "float32",
+}
+
+ECGFOUNDER = InputContract.from_dict(ECGFOUNDER_DICT)
 
 
 def mimic_source(unit="mV", fs=500.0, n=5000, leads=LEADS_12):
@@ -182,3 +182,13 @@ def test_genuine_upsample_still_reports_upsample_required():
 def test_unknown_pad_policy_is_rejected_at_compile_time():
     with pytest.raises(ValueError, match="pad_policy"):
         compile_recipe(PROPHECG, mimic_source(n=2500), pad_policy="constant")
+
+
+def test_gain_is_applied_after_unit_conversion_and_before_normalize():
+    contract = InputContract.from_dict({**ECGFOUNDER_DICT, "gain": 208.3333, "scaling": "none"})
+    meta = mimic_source(unit="uV")
+    chain = compile_recipe(contract, meta)
+    names = [op["name"] for op in chain.describe()]
+    assert names.index("scale_unit") < names.index("gain") < names.index("normalize")
+    out = chain.apply(make_signal(meta))
+    assert np.isclose(out.data[0, 0], make_signal(meta).data[0, 0] * 1e-3 * 208.3333, rtol=1e-5)

@@ -13,6 +13,7 @@ from mival.contract import CompileError, InputContract
 from mival.ops import (
     BandFilter,
     Crop,
+    Gain,
     Normalize,
     Op,
     OpChain,
@@ -115,7 +116,12 @@ def compile_recipe(
             )
         ops.append(Pad(contract.n_samples, mode=pad_policy))
 
-    # 6. normalization
+    # 6. gain: a card-declared quirk on top of the unit, applied before
+    #    normalization so it changes the mean/std that step measures.
+    if contract.gain != 1.0:
+        ops.append(Gain(contract.gain))
+
+    # 7. normalization
     ops.append(Normalize(contract.scaling))
 
     return OpChain(tuple(ops))

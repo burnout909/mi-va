@@ -663,3 +663,10 @@ def test_the_loader_is_injectable_because_dicom_reading_is_a_later_plan(tmp_path
     ctx, result = run_stage(tmp_path, study, stage=PreprocessStage(loader=loader))
     assert len(calls) == 3
     assert result.counts["in"] == 3
+
+
+def test_loader_is_chosen_by_name_from_the_spec(tmp_path):
+    stage = PreprocessStage()
+    assert stage.resolve_loader({"loader": "npz"}) is load_npz_record
+    with pytest.raises(ValueError, match="loader"):
+        stage.resolve_loader({"loader": "xml"})

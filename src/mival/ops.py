@@ -238,6 +238,22 @@ class ReconstructLeads(Op):
         )
 
 
+@dataclass(frozen=True)
+class Gain(Op):
+    """Multiply by a constant the model expects on top of its unit (a card-declared quirk)."""
+
+    factor: float
+    name: str = field(default="gain", init=False)
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        return {"factor": self.factor}
+
+    def apply(self, sig: Signal) -> Signal:
+        return Signal(data=np.ascontiguousarray(sig.data * np.float32(self.factor), dtype=np.float32),
+                      leads=sig.leads, sampling_rate_hz=sig.sampling_rate_hz, unit=sig.unit)
+
+
 SUPPORTED_SCALINGS = frozenset({"none", "global_zscore", "per_lead_zscore"})
 
 

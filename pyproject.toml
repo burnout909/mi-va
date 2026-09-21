@@ -22,6 +22,10 @@ figures = ["matplotlib>=3.4"]
 # The retrieve stage's default query path (mival.stages.retrieve.query_postgres)
 # needs this; the injected-query path used by tests and by other stages does not.
 db = ["psycopg[binary]>=3.1"]
+# The real cohort's records are DICOM (12-lead ECG Waveform Storage);
+# mival.stages.preprocess.load_dicom_record imports pydicom inside the
+# function, same rule as `tables` and `metrics`.
+dicom = ["pydicom>=3.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

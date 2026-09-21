@@ -43,6 +43,7 @@ class InputContract:
     layout: str
     dtype: str
     filters: Tuple[Dict[str, Any], ...] = field(default=())
+    gain: float = 1.0
 
     @property
     def n_samples(self) -> int:
@@ -96,4 +97,5 @@ class InputContract:
             layout=str(body["layout"]),
             dtype=str(body["dtype"]),
             filters=filters,
+            gain=float(body.get("gain", 1.0)),
         )
