@@ -1,7 +1,7 @@
 # LVEF 과제: Retrieve, Profile, 회귀 출력 설계
 
 날짜: 2026-09-21
-상태: 설계 승인, 구현 계획 대기
+상태: 설계 승인. 구현 계획: `../plans/2026-09-21-lvef-retrieve-profile-regression.md`
 
 ## 0. 한 줄 요약
 
@@ -30,7 +30,7 @@ manifest)에 맞춘다.
 이번 범위 밖:
 
 - EchoNext-Mini와 tabular 입력 (L2-3, 보고 항목 유지)
-- 코호트 단위 정규화 (L2-2). HeartWise는 카드 상수 `scale` op로 환원
+- 코호트 단위 정규화 (L2-2). HeartWise의 상수 배율은 카드 `input_contract.gain`으로 환원
 - Profile HTML report. 표 하나(`profile_summary.json`)로 대신한다
 - 회귀 arm의 Misclassification. 6단계 selector는 확률 위에 정의돼 있어 회귀
   arm은 경고와 함께 건너뛴다. 잔차 기반 selector는 후속 항목
@@ -61,8 +61,8 @@ manifest)에 맞춘다.
 | `label_value` | float | LVEF % |
 | `label_primary` | int | `label_value <= 40` |
 | `label_sens1` | int | `label_value < 50` |
-| `label_sens2` | int | `label_value <= 40`, 단 창을 ±30일로 넓혀 선택한 LVEF 기준 |
-| `label_sens3` | int | 비워둔다 (null). 스키마 호환용 |
+| `label_sens2` | float (0/1, NaN) | `label_value <= 40`, 단 창을 ±30일로 넓혀 선택한 LVEF 기준. 30일 안에도 없으면 NaN |
+| `label_sens3` | float (NaN) | 비워둔다. 스키마 호환용 |
 
 기존 Preprocess가 요구하는 세 컬럼(`image_occurrence_id`, `person_id`,
 `local_path`)과 Models가 요구하는 `label_*` 네 컬럼은 그대로다.
@@ -187,7 +187,9 @@ profile:
 Preprocess spec에 `loader: dicom | npz` 키를 두고 `PreprocessStage`가 이름으로
 고른다. 지금은 생성자 주입만 있어 CLI에서 DICOM을 고를 방법이 없다.
 
-optional extra `dicom = ["pydicom>=2.4"]`.
+optional extra `dicom = ["pydicom>=3.0"]`. 실측: `waveform_array`가 sensitivity를
+적용해 mV를 돌려주고, MIMIC 파일의 채널 순서는 aVF가 aVL보다 앞이며 MDC 코드로
+lead 이름을 정한다.
 
 ## 7. 회귀 출력 유형
 
@@ -206,7 +208,7 @@ optional extra `dicom = ["pydicom>=2.4"]`.
 ### 7.2 adapter
 
 - `forward`는 분류와 같이 `(batch,)` float를 낸다. 카드가 `regression`이면
-  `value_index` 열을 취하고 `postprocess`를 적용한 값이다
+  `value_index` 열을 그대로 낸다
 - `fit`: `FitData`에 `objective` (`bce` | `mse`)를 추가. Models가 arm의
   label_def로 정한다. linear probe head는 `mse`일 때 선형 회귀 (ridge,
   weight_decay를 λ로). fine-tune은 loss만 바꾼다
@@ -217,8 +219,8 @@ optional extra `dicom = ["pydicom>=2.4"]`.
 ### 7.3 Models stage
 
 - `label_value`를 float로 읽는다. 다른 label 컬럼은 int 그대로
-- 회귀 arm은 `fit_thresholds`를 건너뛴다. `thresholds.json`에 해당 run_key는
-  `{"policy": null, "reason": "regression"}`
+- 회귀 arm은 `fit_thresholds`를 건너뛴다. train_log의 `thresholds`는 빈 dict,
+  `primary_threshold_policy`는 null
 - `inference_only` 회귀 arm은 카드가 `regression`이어야 한다. 아니면
   `ValueError`
 - contamination gate와 leakage gate는 그대로
@@ -226,8 +228,8 @@ optional extra `dicom = ["pydicom>=2.4"]`.
 ### 7.4 Evaluate stage
 
 - arm의 label_def가 `value`면 지표 집합을 바꾼다: `mae`, `rmse`, `r2`,
-  그리고 `auroc_at_40` (`label_primary` 대 `40 - pred_value`). bootstrap CI는
-  기존 기계 그대로
+  그리고 `auroc_below@40` (`label_value <= 40` 대 `40 - pred_value`. 컷은
+  evaluate spec `regression_cuts`, 기본 `[40]`). bootstrap CI는 기존 기계 그대로
 - calibration, utility 범주는 회귀 arm에서 생략한다
 - `metrics_long`의 `metric` 값에 위 네 개가 추가된다. `category_of`에
   `regression` 범주를 추가한다
@@ -260,8 +262,9 @@ module이 나오는지(state_dict 키와 shape 일치) 회귀 테스트로 확�
 
 카드 3장 추가: `registry/models/xecg.json`, `heartwise-lvef-binary.json`,
 `heartwise-lvef-regression.json`. 입력 계약은 `docs/models/*.md`의 실측값.
-HeartWise 두 장은 `scaling`에 `scale` op 상수(`1/0.0048`)를 적고, 이 상수가
-MIMIC 코호트에서 나온 값임을 `notes`에 적는다.
+HeartWise 두 장은 `input_contract.gain: 208.3333`(저자의 `1/0.0048`)을 적는다.
+`gain`은 단위 변환 뒤, 정규화 앞에 곱하는 상수이고 기본값 1.0이다. 저자의 코호트
+단위 스펙트럼 스케일링(L2-2)은 적용하지 않고 `notes`에 그 사실을 적는다.
 
 `studies/lvef/study.yaml`:
 
