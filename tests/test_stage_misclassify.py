@@ -202,6 +202,21 @@ def test_regression_predictions_are_skipped_with_a_warning(tmp_path):
     assert not (cases["label_def"] == REGRESSION_LABEL_DEF).any()
 
 
+def test_loading_mixed_regression_and_classification_predictions_is_warning_free(tmp_path):
+    """A regression arm's null prob/logit and a classification arm's null
+    pred_value/label_value must not make the concat in load_predictions warn."""
+    import warnings
+
+    from mival.stages._predictions import load_predictions
+
+    directory = build_predictions(tmp_path / "predictions", with_regression=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        predictions = load_predictions(directory)
+    for column in ("prob", "logit", "pred_value", "label_value"):
+        assert predictions[column].dtype == "float64"
+
+
 # ---------------------------------------------------------------------------
 # Schema and the review loop
 # ---------------------------------------------------------------------------

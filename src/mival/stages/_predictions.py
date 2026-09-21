@@ -41,6 +41,15 @@ FALLBACK_THRESHOLD = 0.5
 #: mean the test estimate used an operating point chosen on the test set.
 _NON_ARM_AXES = ("split", "fold")
 
+#: Numeric prediction columns that are entirely null on one arm's kind (a
+#: regression arm's ``prob``/``logit``, a classification arm's ``pred_value``).
+#: Concatenating an all-null (object-dtype) column against a typed one of the
+#: same name is a pandas ``FutureWarning``; casting every frame the same way
+#: first keeps the dtypes identical so the concat has nothing to warn about.
+_NUMERIC_PREDICTION_COLUMNS = tuple(
+    name for name in PREDICTION_COLUMNS if name.startswith("label_")
+) + ("prob", "logit", "pred_value")
+
 
 # ---------------------------------------------------------------------------
 # Loading
@@ -76,6 +85,10 @@ def load_predictions(path: Path, label_def: Optional[str] = None):
             check_axes_agree(frame, key, part.name)
             for axis, value in key.to_dict().items():
                 frame[axis] = value
+            # See _NUMERIC_PREDICTION_COLUMNS: keep dtypes identical across arms.
+            for column in _NUMERIC_PREDICTION_COLUMNS:
+                if column in frame.columns:
+                    frame[column] = frame[column].astype("float64")
             frames.append(frame)
         if not frames:
             raise ValueError(f"no prediction parquet files under {target}")
