@@ -428,7 +428,7 @@
   <h2>추가할 metrics (Metrics Reloaded)</h2>
   <ul>
     <li><strong>Reference</strong>: Maier-Hein L, Reinke A, Godau P, et al. <em>Metrics reloaded: recommendations for image analysis validation.</em> Nat Methods 2024;21:195–212. doi:10.1038/s41592-023-02151-z</li>
-    <li class="key">우리 문제의 fingerprint: <strong>image-level classification</strong>, 이진, 클래스 점수 있음, 양성 24%(불균형), 결정 규칙은 <em>민감도 95% 목표값</em>, 환자당 ECG 여러 건(비독립). 아래는 이 fingerprint로 S2~S5를 따라갔을 때 지금 없는 지표.</li>
+    <li class="key"><strong>Image-level classification</strong></li>
   </ul>
   <ul>
     <li><strong>EC (Expected Cost)</strong>: FP와 FN에 비용을 매겨 계산한 기대 비용. 불균형과 비대칭 비용을 함께 보정하는 다중클래스 counting metric으로 논문이 1순위로 권고. 비용은 study.yaml에 선언.</li>
