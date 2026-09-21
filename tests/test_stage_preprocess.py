@@ -607,7 +607,19 @@ def test_the_real_registry_compiles_without_importing_any_backend(tmp_path):
         ],
     )
     stage = PreprocessStage()
-    ctx = context(tmp_path, {"registry": str(registry)}, cohort, stage=stage)
+    # The registry now spans cards down to 100 Hz (xECG) and 250 Hz (HeartWise
+    # LVEF), below two of the shared default resample levels (250, 100 -
+    # perturbation.py DEFAULT_AXES). A single grid cannot degrade every card's
+    # contract meaningfully (perturbation.py's own docstring says so), so this
+    # baseline-only override is the narrowest fix that keeps every card
+    # compiling without picking new research-design degrade levels; see
+    # docs/decisions/adaptations.md A-8 and the L2-2 entry for the wider issue.
+    ctx = context(
+        tmp_path,
+        {"registry": str(registry), "perturbation": {"axes": {"resample": [500]}}},
+        cohort,
+        stage=stage,
+    )
     ctx.layout.create_dirs()
     result = stage.run(ctx)
 
@@ -616,9 +628,15 @@ def test_the_real_registry_compiles_without_importing_any_backend(tmp_path):
     assert "torch" not in sys.modules
     assert "tensorflow" not in sys.modules
     frame = read_table(ctx.layout.artifact(PREPROCESS_INDEX))
-    assert set(frame["model_id"]) == {"ecgfounder", "prophecg-stemi"}
-    assert result.counts["models"] == 2
-    assert result.counts["recipes"] == 2  # 12-lead zscore vs 8-lead unscaled
+    assert set(frame["model_id"]) == {
+        "ecgfounder",
+        "prophecg-stemi",
+        "xecg",
+        "heartwise-lvef-binary",
+        "heartwise-lvef-regression",
+    }
+    assert result.counts["models"] == 5
+    assert result.counts["recipes"] == 4  # heartwise binary and regression share one recipe
 
 
 def test_no_model_is_named_anywhere_in_this_stage_or_the_perturbation_library():

@@ -143,4 +143,11 @@ def test_contract_rejects_unsupported_filter_kind():
 
 def test_both_registry_cards_still_load():
     cards = load_registry(REGISTRY)
-    assert set(cards) == {"ecgfounder", "prophecg-stemi"}
+    assert {"ecgfounder", "prophecg-stemi"} <= set(cards)
+
+
+def test_every_registry_card_loads(registry_dir):
+    from mival.modelcard import load_registry
+
+    cards = load_registry(registry_dir)
+    assert {"ecgfounder", "prophecg-stemi", "xecg", "heartwise-lvef-binary", "heartwise-lvef-regression"} <= set(cards)
