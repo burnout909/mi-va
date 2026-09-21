@@ -99,15 +99,15 @@ LVEF 과제에서 4개 모델을 6단계 끝까지 돌려 각 모델의 성능�
 ### 13. misclassification — 구성 원칙과 결과
 - 원칙(사용자 결정 2026-09-22): **모델별로 독립**. selector는 한 모델의 예측 안에서만 정의하고, 두 모델을 교차하는 contrast는 두지 않는다.
 - `.knobs`: 모델 4개. 누르면 `.code`에 그 모델의 selector 선언, `.box`에 결과 요약(FP/FN 상위 k의 LVEF 분포, 임계값 근처 건수).
-- 선언 초안(모델당 동일 형태):
+- 선언(`studies/lvef/study.yaml`, 커밋 `53f71f8`; 모델당 같은 두 개, `split: test`를 고정해 record당 예측 하나로 좁힘):
   ```yaml
   misclassify:
     selectors:
-      - {name: hw_binary_errors, type: error, k: 20,
-         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline}}
-      - {name: hw_binary_boundary, type: boundary, epsilon: 0.05, k: 20,
-         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline}}
-      # ecgfounder / xecg: model_id, training_mode: linear_probe 로 같은 두 개
+      - {name: heartwise_binary_errors, type: error, k: 20,
+         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: heartwise_binary_boundary, type: boundary, epsilon: 0.05, k: 20,
+         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline, split: test}}
+      # ecgfounder_probe_*, xecg_probe_*: model_id와 training_mode: linear_probe만 다름
   ```
   회귀 arm(label_def value)은 확률이 없어 error/boundary 대상이 아니다. 회귀 오차 상위는 지금 selector 종류에 없다(L1 후보: `type: residual`).
 - 결과(`misclassify_summary.csv`, test 206건, 임계값 refit_sens95 = HeartWise 0.065 · ECGFounder 0.069 · xECG 0.074):
