@@ -19,7 +19,7 @@ must not require editing plotting code.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple, Union
 
 _MISSING = (
     "drawing figures requires matplotlib. Install it with `pip install 'mival[figures]'`."
@@ -103,6 +103,20 @@ def stard_flow(
                 bbox={"boxstyle": "round,pad=0.4", "facecolor": "0.95", "edgecolor": "0.6"},
             )
     axes.set_title(title)
+    return _save(figure, path)
+
+
+def regression_scatter(series: Sequence[Tuple[str, Any, Any]], path: Union[str, Path]) -> Path:
+    """Predicted against observed, one panel per arm, with the identity line."""
+    plt = _pyplot()
+    figure, axes = plt.subplots(1, len(series), figsize=(4 * len(series), 4), squeeze=False)
+    for axis, (label, y, p) in zip(axes[0], series):
+        axis.scatter(y, p, s=4, alpha=0.3)
+        lo, hi = float(min(y.min(), p.min())), float(max(y.max(), p.max()))
+        axis.plot([lo, hi], [lo, hi], color="gray", linewidth=1)
+        axis.set_title(label, fontsize=8)
+        axis.set_xlabel("observed")
+        axis.set_ylabel("predicted")
     return _save(figure, path)
 
 

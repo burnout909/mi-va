@@ -19,6 +19,7 @@ from typing import Dict, Optional, Sequence, Tuple
 
 from . import calibration as _calibration
 from . import discrimination as _discrimination
+from . import regression as _regression
 from . import utility as _utility
 from .calibration import (
     DEFAULT_KNOTS,
@@ -41,6 +42,7 @@ from .discrimination import (
     pr_points,
     roc_points,
 )
+from .regression import regression_metrics
 from .utility import (
     DEFAULT_DECISION_THRESHOLDS,
     decision_curve,
@@ -53,6 +55,7 @@ DISCRIMINATION = "discrimination"
 CALIBRATION = "calibration"
 CLINICAL_UTILITY = "clinical_utility"
 INTERPRETATION = "interpretation"
+REGRESSION = "regression"
 
 #: Category 4's reserved, empty slot. See the module docstring.
 INTERPRETATION_METRICS: Tuple[str, ...] = ()
@@ -63,6 +66,7 @@ METRIC_CATEGORY.update({name: DISCRIMINATION for name in _discrimination.METRICS
 METRIC_CATEGORY.update({name: CALIBRATION for name in _calibration.METRICS})
 METRIC_CATEGORY.update({name: CLINICAL_UTILITY for name in _utility.METRIC_STEMS})
 METRIC_CATEGORY.update({name: INTERPRETATION for name in INTERPRETATION_METRICS})
+METRIC_CATEGORY.update({name: REGRESSION for name in _regression.METRICS + _regression.METRIC_STEMS})
 
 #: Separator between a metric name and its parameter, e.g. ``net_benefit@0.05``.
 PARAMETER_SEP = "@"
@@ -115,6 +119,7 @@ __all__ = [
     "INTERPRETATION_METRICS",
     "METRIC_CATEGORY",
     "PARAMETER_SEP",
+    "REGRESSION",
     "auprc",
     "auroc",
     "brier",
@@ -134,6 +139,7 @@ __all__ = [
     "net_benefit",
     "net_benefit_treat_all",
     "pr_points",
+    "regression_metrics",
     "roc_points",
     "utility_metrics",
 ]

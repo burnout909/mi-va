@@ -22,6 +22,7 @@ from mival.pipeline.tables import read_table
 from mival.stages.models import (
     PREDICTION_COLUMNS,
     PRIMARY_THRESHOLD_POLICY,
+    REGRESSION_LABEL_DEF,
     THRESHOLD_POLICIES,
 )
 from mival.threshold import SENS95_TARGET_SENSITIVITY
@@ -168,6 +169,11 @@ def arm_axes() -> Tuple[str, ...]:
     return tuple(axis for axis in AXES if axis not in _NON_ARM_AXES)
 
 
+def is_regression(key: RunKey) -> bool:
+    """A regression arm reads ``label_value``/``pred_value`` and has no threshold."""
+    return key.label_def == REGRESSION_LABEL_DEF
+
+
 # ---------------------------------------------------------------------------
 # Operating thresholds (spec §4.4) — fitted off the test split, never on it
 # ---------------------------------------------------------------------------
@@ -231,6 +237,9 @@ def fit_operating_thresholds(
     thresholds: Dict[Tuple[str, ...], float] = {}
     for key, _ in group_by_run_key(predictions):
         arm = arm_of(key)
+        if is_regression(key):
+            thresholds[arm] = float("nan")
+            continue
         if arm in thresholds:
             continue
         if policy.threshold is not None:
@@ -321,6 +330,10 @@ def recorded_thresholds_and_contamination(
             contaminated[arm] = flag
             if fit is not None and fit.get("value") is not None:
                 thresholds[arm] = float(fit["value"])
+            elif entry.get("primary_threshold_policy") is None:
+                # A regression arm never fits a threshold; a missing fit here
+                # is the expected shape, not a gap worth a warning.
+                continue
             else:
                 warnings.append(
                     f"train_log has no {policy!r} threshold for arm {arm}; it will be refitted "

@@ -31,6 +31,7 @@ from mival.stages._predictions import (
     arm_of as _arm_of,
     fit_operating_thresholds,
     group_by_run_key as _group_by_run_key,
+    is_regression,
     load_predictions as _load_predictions,
     recorded_thresholds_and_contamination,
 )
@@ -59,7 +60,13 @@ METRICS_LONG_COLUMNS = AXES + (
 #: Spec §4.5 categories. "Overall performance" is deliberately absent: Brier is
 #: a composite, and by the Murphy decomposition its reliability term belongs to
 #: calibration and its resolution term to discrimination.
-CATEGORIES = ("discrimination", "calibration", "clinical_utility", "interpretation")
+CATEGORIES = (
+    "discrimination",
+    "calibration",
+    "clinical_utility",
+    "interpretation",
+    "regression",
+)
 
 # Category 4 (interpretation) holds a schema slot and emits no rows in this
 # plan: attribution maps and lead/time-region agreement are a qualitative
@@ -75,6 +82,10 @@ BOOTSTRAP_UNIT = "person_id"
 
 #: Spec §4.5: computed but marked, never used in conclusions.
 SUBGROUP_SUPPRESS_MIN_EVENTS = 10
+
+#: A regression arm's default cut for the derived classification metric
+#: (``auroc_below@<cut>``). LVEF <= 40 is the study's reduced-function line.
+DEFAULT_REGRESSION_CUTS = (40.0,)
 
 # ---------------------------------------------------------------------------
 # Added by Plan 5, below the pinned contract above.
@@ -183,6 +194,7 @@ class EvaluateStage(Stage):
         rows: List[Dict[str, Any]] = []
         run_keys: List[RunKey] = []
         curves: Dict[str, List[Tuple[str, Any, Any]]] = {}
+        scatter: Dict[str, List[Tuple[str, Any, Any]]] = {}
         for key, group in _group_by_run_key(predictions):
             run_keys.append(key)
             threshold = thresholds[_arm_of(key)]
@@ -204,7 +216,17 @@ class EvaluateStage(Stage):
                         # Same restriction the metrics use: a record without a
                         # label for this outcome is not part of this curve.
                         labelled = slice_frame[slice_frame[label_column].notna()]
-                        if len(labelled):
+                        if not len(labelled):
+                            continue
+                        if is_regression(key):
+                            scatter.setdefault(outcome, []).append(
+                                (
+                                    _curve_label(key),
+                                    labelled[label_column].to_numpy(dtype=float),
+                                    labelled["pred_value"].to_numpy(dtype=float),
+                                )
+                            )
+                        else:
                             curves.setdefault(outcome, []).append(
                                 (
                                     _curve_label(key),
@@ -225,7 +247,9 @@ class EvaluateStage(Stage):
 
         if settings.draw_figures:
             n_analysed = int(predictions["image_occurrence_id"].nunique())
-            outputs.extend(_draw_figures(ctx, rows, curves, settings, n_analysed, warnings))
+            outputs.extend(
+                _draw_figures(ctx, rows, curves, scatter, settings, n_analysed, warnings)
+            )
 
         return StageResult(
             outputs=outputs,
@@ -349,6 +373,9 @@ class _Settings:
         )
         self.draw_figures = bool(spec.get("figures", True))
         self.min_events = int(spec.get("min_events", SUBGROUP_SUPPRESS_MIN_EVENTS))
+        self.regression_cuts: Tuple[float, ...] = tuple(
+            float(cut) for cut in spec.get("regression_cuts", DEFAULT_REGRESSION_CUTS)
+        )
 
     @classmethod
     def from_spec(cls, spec, default_decision_thresholds, default_murphy_bins) -> "_Settings":
@@ -437,6 +464,9 @@ def _rows_for_slice(
     settings: _Settings,
     contaminated: bool,
 ) -> List[Dict[str, Any]]:
+    if is_regression(key):
+        return _regression_rows(key, frame, label_column, outcome, subgroup, settings, contaminated)
+
     import numpy as np
 
     from mival.metrics import category_of, compute_metrics
@@ -512,6 +542,80 @@ def _rows_for_slice(
     return rows
 
 
+def _regression_rows(
+    key: RunKey,
+    frame,
+    label_column: str,
+    outcome: str,
+    subgroup: str,
+    settings: _Settings,
+    contaminated: bool,
+) -> List[Dict[str, Any]]:
+    """Category 'regression': error, fit and the derived below-cut classification.
+
+    A regression arm has no operating threshold (spec addendum), so this is a
+    parallel path to :func:`_rows_for_slice` rather than a branch inside it:
+    ``compute_metrics`` needs a probability and a threshold that this arm does
+    not have.
+    """
+    import numpy as np
+
+    from mival.metrics import category_of, regression_metrics
+    from mival.metrics.bootstrap import bootstrap_ci, event_strata
+
+    usable = frame[frame[label_column].notna() & frame["pred_value"].notna()]
+    y = usable[label_column].to_numpy(dtype=float)
+    p = usable["pred_value"].to_numpy(dtype=float)
+    n = int(y.size)
+    if n == 0:
+        return []
+    # Events for stratified resampling and the suppression floor: the primary cut.
+    events = (y <= settings.regression_cuts[0]).astype(float)
+    n_events = int(events.sum())
+
+    def statistic(indices) -> Dict[str, float]:
+        return regression_metrics(y[indices], p[indices], settings.regression_cuts)
+
+    point = statistic(np.arange(n))
+    intervals: Dict[str, Any] = {}
+    if settings.bootstrap and settings.bootstrap_replicates > 0:
+        groups = (
+            usable[BOOTSTRAP_UNIT].to_numpy() if BOOTSTRAP_UNIT in usable.columns else None
+        )
+        intervals = bootstrap_ci(
+            statistic,
+            n_rows=n,
+            n_replicates=settings.bootstrap_replicates,
+            seed=settings.seed,
+            groups=groups,
+            strata=event_strata(events, groups),
+            alpha=settings.bootstrap_alpha,
+            point=point,
+        )
+
+    rows: List[Dict[str, Any]] = []
+    base = key.to_dict()
+    for metric, value in point.items():
+        interval = intervals.get(metric)
+        row = dict(base)
+        row.update(dict(zip(REPORT_AXES, (subgroup, outcome))))
+        row.update(
+            {
+                "category": category_of(metric),
+                "metric": metric,
+                "value": _finite(value),
+                "ci_lo": _finite(interval.ci_lo) if interval is not None else None,
+                "ci_hi": _finite(interval.ci_hi) if interval is not None else None,
+                "n": n,
+                "n_events": n_events,
+                "suppressed": bool(n_events < settings.min_events),
+                "contaminated": bool(contaminated),
+            }
+        )
+        rows.append(row)
+    return rows
+
+
 def _finite(value) -> Optional[float]:
     """NaN becomes NULL in the table: an undefined metric is not a number."""
     if value is None:
@@ -568,6 +672,15 @@ def _comparison_rows(
         name = str(comparison.get("name", "comparison"))
         key_a, frame_a = _select_arm(predictions, comparison["a"], name)
         key_b, frame_b = _select_arm(predictions, comparison["b"], name)
+        if is_regression(key_a) or is_regression(key_b):
+            # Comparison metrics (auroc, auprc, ...) are defined on
+            # probabilities; a regression arm has none.
+            regression_label_def = key_a.label_def if is_regression(key_a) else key_b.label_def
+            warnings.append(
+                f"comparison {name!r} involves a regression arm (label_def="
+                f"{regression_label_def!r}); skipped"
+            )
+            continue
         label_a = settings.label_column_for(key_a.label_def)
         label_b = settings.label_column_for(key_b.label_def)
         # Renamed before the join rather than relying on merge suffixes: when
@@ -666,7 +779,13 @@ def _select_arm(predictions, filters: Mapping[str, Any], name: str):
 
 
 def _draw_figures(
-    ctx: StageContext, rows, curves, settings: _Settings, n_analysed: int, warnings: List[str]
+    ctx: StageContext,
+    rows,
+    curves,
+    scatter,
+    settings: _Settings,
+    n_analysed: int,
+    warnings: List[str],
 ):
     if importlib.util.find_spec("matplotlib") is None:
         warnings.append("matplotlib is not installed; figures were skipped")
@@ -699,6 +818,10 @@ def _draw_figures(
                 band=tuple(settings.decision_band),
             )
         )
+
+    points = scatter.get(settings.primary_outcome, [])
+    if points:
+        written.append(figure_module.regression_scatter(points, directory / "regression_scatter.png"))
 
     written.extend(_slice_figures(rows, directory, figure_module))
     return written

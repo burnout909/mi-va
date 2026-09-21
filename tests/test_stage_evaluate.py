@@ -27,17 +27,25 @@ from mival.stages.evaluate import (
     SUBGROUP_SUPPRESS_MIN_EVENTS,
     EvaluateStage,
 )
+from mival.stages.models import REGRESSION_LABEL_DEF
 
 MODELS = (("prophecg", "inference_only"), ("ecgfounder", "linear_probe"))
 
 
-def build_predictions(directory: Path, splits=("dev", "test"), perturbations=("none",)):
+def build_predictions(
+    directory: Path, splits=("dev", "test"), perturbations=("none",), regression=False
+):
     """A small cohort with a rare-event subgroup, written one file per run_key.
 
     50 male persons carrying 20 events and 10 female persons carrying 3, so
     `sex=F` sits below the suppression floor and `sex=M` above it. Every
     person contributes two ECGs, which is what makes the person-level
     bootstrap the correct unit.
+
+    ``regression=True`` writes a regression arm instead of a classification
+    one: `label_def="value"`, `prob`/`logit` null, and continuous
+    `label_value`/`pred_value` built from the same binary label so the LVEF
+    cut at 40 still separates the two groups.
     """
     rng = np.random.default_rng(2)
     people = []
@@ -66,9 +74,14 @@ def build_predictions(directory: Path, splits=("dev", "test"), perturbations=("n
         for perturbation in perturbations:
             damage = 1.0 if perturbation == "none" else 0.5
             scores = {}
+            label_values = {}
+            pred_values = {}
             for person, image in records:
                 signal = rng.normal(loc=skill * damage * person["label"], scale=1.0)
                 scores[image] = float(1.0 / (1.0 + np.exp(-(signal - 1.0))))
+                if regression:
+                    label_values[image] = 60.0 - 20.0 * person["label"] + float(rng.normal(scale=2.0))
+                    pred_values[image] = label_values[image] + float(rng.normal(scale=2.0))
             for split in splits:
                 key = RunKey(
                     site="mimic",
@@ -76,7 +89,7 @@ def build_predictions(directory: Path, splits=("dev", "test"), perturbations=("n
                     training_mode=mode,
                     recipe_id="r1",
                     perturbation_id=perturbation,
-                    label_def="primary",
+                    label_def=REGRESSION_LABEL_DEF if regression else "primary",
                     split=split,
                     fold=None,
                 )
@@ -90,8 +103,14 @@ def build_predictions(directory: Path, splits=("dev", "test"), perturbations=("n
                         "label_sens1": person["label"],
                         "label_sens2": person["label"],
                         "label_sens3": person["label"],
-                        "prob": scores[image],
-                        "logit": float(np.log(scores[image] / (1 - scores[image]))),
+                        "label_value": label_values.get(image) if regression else None,
+                        "pred_value": pred_values.get(image) if regression else None,
+                        "prob": None if regression else scores[image],
+                        "logit": (
+                            None
+                            if regression
+                            else float(np.log(scores[image] / (1 - scores[image])))
+                        ),
                         "model_id": model_id,
                         "training_mode": mode,
                         "recipe_id": "r1",
@@ -106,11 +125,13 @@ def build_predictions(directory: Path, splits=("dev", "test"), perturbations=("n
     return cohort
 
 
-def run_stage(tmp_path: Path, spec=None, subdirectory="case", cohort_columns=("sex",)):
+def run_stage(
+    tmp_path: Path, spec=None, subdirectory="case", cohort_columns=("sex",), regression=False
+):
     """Run the stage directly on a directory of prediction files."""
     root = tmp_path / subdirectory
     predictions = root / "predictions"
-    cohort = build_predictions(predictions)
+    cohort = build_predictions(predictions, regression=regression)
     cohort_path = root / "cohort_split.parquet"
     cohort[["person_id", "split"] + [column for column in cohort_columns]].to_parquet(
         cohort_path, index=False
@@ -135,6 +156,21 @@ def run_stage(tmp_path: Path, spec=None, subdirectory="case", cohort_columns=("s
 
 
 BASE_SPEC = {"subgroups": ["sex"], "bootstrap_replicates": 20, "figures": False}
+
+
+def test_regression_arm_reports_regression_metrics_only(tmp_path):
+    _, _, table = run_stage(tmp_path, BASE_SPEC, regression=True)
+    reg = table[table["label_def"] == "value"]
+    assert set(reg["metric"]) == {"mae", "rmse", "r2", "auroc_below@40"}
+    assert set(reg["category"]) == {"regression"}
+    assert reg["ci_lo"].notna().any()
+    assert not (table[table["label_def"] == "primary"]["category"] == "regression").any()
+
+
+def test_regression_cut_comes_from_the_spec(tmp_path):
+    _, _, table = run_stage(tmp_path, {**BASE_SPEC, "regression_cuts": [35, 50]}, regression=True)
+    reg = table[table["label_def"] == "value"]
+    assert {"auroc_below@35", "auroc_below@50"} <= set(reg["metric"])
 
 
 def test_the_output_columns_are_exactly_the_pinned_schema(tmp_path):

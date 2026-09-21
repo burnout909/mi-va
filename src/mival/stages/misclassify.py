@@ -36,7 +36,7 @@ from mival.stages._predictions import (
     optional_int,
     recorded_thresholds_and_contamination,
 )
-from mival.stages.models import LABEL_COLUMNS
+from mival.stages.models import LABEL_COLUMNS, REGRESSION_LABEL_DEF
 
 #: Output artifacts, relative to ``ctx.layout.artifacts_dir``.
 CASES = "cases.parquet"
@@ -476,6 +476,13 @@ class MisclassifyStage(Stage):
         warnings: List[str] = []
 
         predictions = load_predictions(ctx.input_path("predictions"), spec.label_def)
+        regression = predictions["label_def"] == REGRESSION_LABEL_DEF
+        if regression.any():
+            warnings.append(
+                f"{int(regression.sum())} regression prediction rows (label_def={REGRESSION_LABEL_DEF!r}) "
+                "were skipped: the selectors are defined on probabilities"
+            )
+            predictions = predictions[~regression]
         frame = _normalise_axes(predictions)
 
         recorded: Dict[Tuple[str, ...], float] = {}

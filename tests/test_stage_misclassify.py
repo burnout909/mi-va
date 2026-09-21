@@ -31,6 +31,7 @@ from mival.stages.misclassify import (
     MisclassifyStage,
     SelectorError,
 )
+from mival.stages.models import REGRESSION_LABEL_DEF
 
 N_RECORDS = 30
 MODELS = ("modela", "modelb")
@@ -64,8 +65,14 @@ def _split(index: int) -> str:
     return "test" if index % 4 == 0 else "dev"
 
 
-def build_predictions(directory: Path, seeds=(1,)):
-    """One parquet per run_key, over model x perturbation x label_def x split."""
+def build_predictions(directory: Path, seeds=(1,), with_regression=False):
+    """One parquet per run_key, over model x perturbation x label_def x split.
+
+    ``with_regression=True`` writes one further run_key file, a regression
+    arm (`label_def="value"`, `prob`/`logit` null, `label_value`/`pred_value`
+    filled) alongside the classification arms, so a stage run over the
+    directory sees both kinds at once.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     import numpy as np
 
@@ -109,6 +116,42 @@ def build_predictions(directory: Path, seeds=(1,)):
                     pd.DataFrame(rows).to_parquet(
                         directory / f"{key.to_string()}.parquet", index=False
                     )
+
+    if with_regression:
+        key = RunKey(
+            site="mimic",
+            model_id="modela",
+            training_mode="inference_only",
+            recipe_id="r1",
+            perturbation_id="baseline",
+            label_def=REGRESSION_LABEL_DEF,
+            split="test",
+            fold=None,
+        )
+        rows = []
+        for index in range(N_RECORDS):
+            if _split(index) != "test":
+                continue
+            label_value = 60.0 - 0.5 * index
+            rows.append(
+                {
+                    "image_occurrence_id": f"r{index:02d}",
+                    "person_id": f"p{index:02d}",
+                    "split": "test",
+                    "fold": None,
+                    "label_value": label_value,
+                    "pred_value": label_value + 1.0,
+                    "prob": None,
+                    "logit": None,
+                    "model_id": "modela",
+                    "training_mode": "inference_only",
+                    "recipe_id": "r1",
+                    "perturbation_id": "baseline",
+                    "seed": 1,
+                    "site": "mimic",
+                }
+            )
+        pd.DataFrame(rows).to_parquet(directory / f"{key.to_string()}.parquet", index=False)
     return directory
 
 
@@ -122,9 +165,13 @@ REFERENCE = {
 }
 
 
-def run_stage(tmp_path: Path, spec, inputs=None, subdirectory="case", seeds=(1,)):
+def run_stage(
+    tmp_path: Path, spec, inputs=None, subdirectory="case", seeds=(1,), with_regression=False
+):
     root = tmp_path / subdirectory
-    predictions = build_predictions(root / "predictions", seeds=seeds)
+    predictions = build_predictions(
+        root / "predictions", seeds=seeds, with_regression=with_regression
+    )
     stage = MisclassifyStage()
     ctx = prepare(
         stage=stage,
@@ -147,6 +194,12 @@ ERROR_SPEC = {
     "figures": False,
     "selectors": [{"name": "errors", "type": "error", "pattern": REFERENCE, "k": 3}],
 }
+
+
+def test_regression_predictions_are_skipped_with_a_warning(tmp_path):
+    _, result, cases = run_stage(tmp_path, ERROR_SPEC, with_regression=True)
+    assert any("regression" in w for w in result.warnings)
+    assert not (cases["label_def"] == REGRESSION_LABEL_DEF).any()
 
 
 # ---------------------------------------------------------------------------
