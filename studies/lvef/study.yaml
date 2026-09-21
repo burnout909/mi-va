@@ -60,4 +60,22 @@ stages:
     bootstrap_replicates: 2000
     figures: true
 
-  misclassify: {}
+  # Misclassification is read per model (decision 2026-09-22): every selector
+  # pins one model's own predictions, and no selector crosses two models.
+  # Regression arms carry no probability, so only the three classification
+  # arms are selected. split is pinned to test so that a record resolves to
+  # exactly one prediction.
+  misclassify:
+    selectors:
+      - {name: heartwise_binary_errors, type: error, k: 20,
+         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: heartwise_binary_boundary, type: boundary, epsilon: 0.05, k: 20,
+         pattern: {model_id: heartwise-lvef-binary, training_mode: inference_only, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: ecgfounder_probe_errors, type: error, k: 20,
+         pattern: {model_id: ecgfounder, training_mode: linear_probe, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: ecgfounder_probe_boundary, type: boundary, epsilon: 0.05, k: 20,
+         pattern: {model_id: ecgfounder, training_mode: linear_probe, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: xecg_probe_errors, type: error, k: 20,
+         pattern: {model_id: xecg, training_mode: linear_probe, label_def: primary, perturbation_id: baseline, split: test}}
+      - {name: xecg_probe_boundary, type: boundary, epsilon: 0.05, k: 20,
+         pattern: {model_id: xecg, training_mode: linear_probe, label_def: primary, perturbation_id: baseline, split: test}}
