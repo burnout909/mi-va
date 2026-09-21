@@ -20,4 +20,5 @@ left join lateral (
     order by abs(m.measurement_date - i.image_occurrence_date), m.measurement_datetime
     limit 1
 ) m on true
+where i.modality_concept_id = %(modality_concept_id)s
 order by i.image_occurrence_id

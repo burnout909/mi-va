@@ -33,6 +33,7 @@ class RetrieveSpec:
     dsn_env: str
     schema: str
     label_concept_id: int
+    modality_concept_id: int
     window_days: int
     window_days_sens2: int
     implausible_below: float
@@ -46,6 +47,8 @@ class RetrieveSpec:
         for key in ("dsn_env", "local_path_root"):
             if not body.get(key):
                 raise ValueError(f"retrieve.{key} is required")
+        if body.get("modality_concept_id") is None:
+            raise ValueError("retrieve.modality_concept_id is required")
         schema = str(body.get("schema", "cdm"))
         if not _IDENTIFIER.match(schema):
             raise ValueError(f"retrieve.schema {schema!r} is not a plain identifier")
@@ -53,6 +56,7 @@ class RetrieveSpec:
             dsn_env=str(body["dsn_env"]),
             schema=schema,
             label_concept_id=int(body.get("label_concept_id", 3027172)),
+            modality_concept_id=int(body["modality_concept_id"]),
             window_days=int(body.get("window_days", 7)),
             window_days_sens2=int(body.get("window_days_sens2", 30)),
             implausible_below=float(body.get("implausible_below", 5)),
@@ -63,7 +67,11 @@ class RetrieveSpec:
         )
 
     def params(self, window_days: int) -> dict:
-        return {"label_concept_id": self.label_concept_id, "window_days": window_days}
+        return {
+            "label_concept_id": self.label_concept_id,
+            "window_days": window_days,
+            "modality_concept_id": self.modality_concept_id,
+        }
 
 
 class RetrieveStage(Stage):

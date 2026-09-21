@@ -51,6 +51,7 @@ def make_spec(tmp_path, **overrides):
         "dsn_env": "/nonexistent/micdm.env",
         "schema": "cdm",
         "label_concept_id": 3027172,
+        "modality_concept_id": 4145308,
         "window_days": 7,
         "window_days_sens2": 30,
         "implausible_below": 5,
@@ -119,6 +120,7 @@ def test_sql_is_copied_and_summary_written(tmp_path):
     query = fake_query({7: rows, 30: rows})
     ctx, _ = run(tmp_path, query)
     assert query.calls[0][1]["window_days"] == 7 and query.calls[1][1]["window_days"] == 30
+    assert query.calls[0][1]["modality_concept_id"] == 4145308
     assert "cdm.image_occurrence" in query.calls[0][0]
     assert (ctx.layout.artifact("sql", "window_7.sql")).is_file()
     summary = ctx.layout.artifact(SUMMARY)

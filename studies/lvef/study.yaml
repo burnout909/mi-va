@@ -7,6 +7,7 @@ stages:
     dsn_env: /data/mi-val/secrets/micdm.env
     schema: cdm
     label_concept_id: 3027172
+    modality_concept_id: 4145308  # ECG (image_occurrence also holds MIMIC-CXR chest X-rays)
     window_days: 7
     window_days_sens2: 30
     implausible_below: 5
