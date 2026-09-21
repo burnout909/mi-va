@@ -60,7 +60,7 @@ CDM이 준 경로에서 파일 부분을 취해 이 root 아래로 해석한다.
 또 다른 접두사를 가질 것이고, 그때 필요한 것은 코드 수정이 아니라 설정 한 줄이다.
 
 - 조치: retrieve 구현 시 prefix 재해석. 코드 0줄 추가 없음
-- 상태: retrieve 미구현이므로 **대기**
+- 상태: retrieve 구현으로 종료
 - 검증: 서로 다른 `local_path_root` 두 개로 같은 cohort가 해석되는 테스트
 
 #### A-2 · 관찰 · `OUTCOME_DIAGNOSTIC = "stemi"`
@@ -110,7 +110,7 @@ LVEF 과제용 모델 3종(xECG, HeartWise DeepECG-SL LVEF, EchoNext-Mini)을 DI
 `builder`(모듈 경로와 인자)를 선언하고 adapter가 그것을 읽게 한다. 회귀 테스트는
 ECGFounder 카드가 기존과 같은 module을 만드는지 확인하는 것으로 충분하다.
 
-- 상태: **수정 대기**
+- 상태: 종료. 카드 `weights_format`/`builder`/`runtime.returns`
 
 #### A-5 · L1 · 출력 유형에 회귀가 없다
 
@@ -119,7 +119,7 @@ ECGFounder 카드가 기존과 같은 module을 만드는지 확인하는 것으
 AUROC 계열이 아니라 MAE·R²가 된다. 회귀냐 분류냐는 아직 연구 결정 전이므로
 (decisions 참조) 결정 전까지 회귀 체크포인트는 카드에 넣지 않는다.
 
-- 상태: **연구 결정 대기**
+- 상태: 종료. `output.type: regression`, 연구 결정은 회귀·분류 병행
 
 #### A-6 · 관찰 · sigmoid를 어디서 취하는가
 
@@ -129,6 +129,21 @@ HeartWise binary 모델은 logit을 내고 저자 wrapper가 sigmoid를 취한�
 ECGFounder의 150 logits와 같은 상황이므로 기존 의미와 충돌하지 않는다.
 
 - 상태: **L0, 카드에서 선언**
+
+#### A-7 · L1 · 라벨이 이진이라는 가정
+
+회귀 arm이 나오면서 `label_value`, `pred_value` 컬럼을 추가했다. 회귀 테스트를
+붙였고, 분류 golden은 변경 없이 그대로 통과한다.
+
+- 상태: 종료
+
+#### A-8 · L0 · `input_contract.gain`
+
+HeartWise의 `1/0.0048` 상수(저자 `efficientnet_wrapper.mhi_factor`)를 카드
+`input_contract.gain`으로 선언했다. L2-2(코호트 단위 스펙트럼 스케일링)의
+임시 조치이고, 코호트 단위 정규화 자체는 여전히 만들지 않는다.
+
+- 상태: 종료
 
 ---
 

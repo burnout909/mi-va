@@ -9,7 +9,7 @@
 | 3 | [Preprocess stage](2026-08-14-plan3-preprocess.md) | perturbation grid, on-the-fly 적용, `preprocess_index`, tensor 저장 | Plan 1, 2 | **구현 완료** |
 | 4 | [Models stage](2026-08-14-plan4-models.md) | training mode 4종, `fit`, threshold 정책, leakage/contamination gate, prediction 출력 | Plan 1, 2 | **구현 완료** (adapter `fit` 포함) |
 | 5 | [Evaluation stage](2026-08-14-plan5-evaluation.md) | 범주 4개, bootstrap, paired bootstrap 비교, `metrics_long`, figure | Plan 2, 4 | **구현 완료** (범주 4 interpretation은 스키마만) |
-| 6 | Retrieve / Profile | cohort SQL, DICOM 경로 해석, acquisition metadata, event-count gate, split 동결 | **Data4Life 설치 + MI-CDM 접근** | 미작성 (차단됨) |
+| 6 | [Retrieve / Profile](../superpowers/plans/2026-09-21-lvef-retrieve-profile-regression.md) | cohort SQL, DICOM 경로 해석, acquisition metadata, event-count gate, split 동결 | **Data4Life 설치 + MI-CDM 접근** | **구현 완료 (2026-09-21, LVEF 과제)** |
 | 7 | [Misclassification](2026-08-14-plan7-misclassification.md) | selector 4종, 사례 시각화, review 병합, attribution | Plan 4, 5 | **구현 완료** |
 
 ## 순서 근거
@@ -28,6 +28,5 @@ Plan 2 이후는 방식을 바꿨다. 계약 계층(Plan 2)은 컨트롤러가 �
 
 ## 남은 작업
 
-- **Plan 6 (Retrieve/Profile)** — Data4Life 설치 + MI-CDM 접근에 차단됨
 - **study.yaml 선언 필요** — 전원 주파수(`powerline_60hz`)와 attribution baseline은 코드가 알 수 없는 사실이라 기본값이 없다 (decisions Preprocess 7, Misclassification 1)
 - ~~DICOM-MIVA 검증~~ — 2026-09-14 완료. 서버 `/data/mi-val/mi-va`에 브랜치를 올려 env 3개(mival 3.12 / ecgfounder 3.10 / prophecg 3.9)에서 전 스위트 통과. `tests/golden/expected.json`은 prophecg env에서 생성했다. PROPHECG `feature_layer`는 `dense_1`(64)로 채웠다
