@@ -104,7 +104,8 @@ class FakeAdapter:
     def forward(self, handle, batch):
         scores = np.asarray(batch, dtype=np.float64).mean(axis=(1, 2))
         self.forward_calls.append([round(float(score), 6) for score in scores])
-        return 1.0 - scores if handle.flip else scores
+        values = 1.0 - scores if handle.flip else scores
+        return 100.0 * values if handle.card.output.get("type") == "regression" else values
 
     def features(self, handle, batch, index=0):
         return np.asarray(batch, dtype=np.float64).reshape(len(batch), -1)
@@ -114,14 +115,16 @@ class FakeAdapter:
 
     def fit(self, handle, data, mode, hparams):
         validation = data["validation"]
+        objective = data.get("objective", "bce")
         self.fits.append(
             {
                 "mode": mode,
                 "hparams": dict(hparams),
                 "train_persons": list(data["person_id"]),
-                "train_y": [int(value) for value in data["y"]],
+                "train_y": [float(value) if objective == "mse" else int(value) for value in data["y"]],
                 "label_column": data["label_column"],
                 "val_persons": None if validation is None else list(validation["person_id"]),
+                "data": {"objective": objective},
             }
         )
         return FakeHandle(handle.card, flip=bool(hparams.get("flip")))
@@ -143,7 +146,7 @@ class NoFitAdapter(FakeAdapter):
 
 
 def write_card(directory, model_id, modes, corpora=("toy-corpus",), threshold=None,
-               adapter="fake", feature_layer="trunk"):
+               adapter="fake", feature_layer="trunk", output=None):
     directory.mkdir(parents=True, exist_ok=True)
     body = {
         "model_id": model_id,
@@ -164,7 +167,7 @@ def write_card(directory, model_id, modes, corpora=("toy-corpus",), threshold=No
                 "dtype": "float32",
                 "filters": [],
             },
-            "output": {"type": "softmax", "positive_index": 1},
+            "output": {"type": "softmax", "positive_index": 1} if output is None else output,
             "feature_layer": feature_layer,
             "threshold": {} if threshold is None else threshold,
             "runtime": {"framework": "fake", "python": "3.9", "device": "cpu"},
@@ -177,8 +180,15 @@ def write_card(directory, model_id, modes, corpora=("toy-corpus",), threshold=No
     return path
 
 
-def build_inputs(tmp_path, model_ids=("toy-a",), rows=ROWS, skip_tensor=(), split_rows=None):
-    """Write the preprocess_index, cohort_split and cohort_index this stage joins."""
+def build_inputs(tmp_path, model_ids=("toy-a",), rows=ROWS, skip_tensor=(), split_rows=None,
+                  label_value=None):
+    """Write the preprocess_index, cohort_split and cohort_index this stage joins.
+
+    ``label_value`` is a ``score -> float`` function for the regression label
+    column; it defaults to ``100 * score`` so a regression arm has a target
+    that is trivially related to the fake adapter's score.
+    """
+    label_value = label_value or (lambda score: 100.0 * score)
     tensors = tmp_path / "tensors"
     tensors.mkdir(parents=True, exist_ok=True)
     index_rows = []
@@ -235,8 +245,9 @@ def build_inputs(tmp_path, model_ids=("toy-a",), rows=ROWS, skip_tensor=(), spli
                 "label_sens1": 1 - label,
                 "label_sens2": label,
                 "label_sens3": 0,
+                "label_value": label_value(score),
             }
-            for image_id, person_id, _score, label, _split, _fold in rows
+            for image_id, person_id, score, label, _split, _fold in rows
         ],
         cohort_path,
         ("image_occurrence_id", "person_id") + tuple(
@@ -998,3 +1009,60 @@ def test_an_inference_only_arm_writes_no_head(tmp_path):
         tmp_path, "inference_only", adapter=ProbeAdapter()
     )
     assert train_log(ctx)[0]["fitted_head"] is None
+
+
+# ---------------------------------------------------------------------------
+# regression arms (label_def=value, spec addendum: LVEF)
+# ---------------------------------------------------------------------------
+
+REGRESSION_OUTPUT = {"type": "regression", "n_outputs": 1, "value_index": 0}
+
+
+def test_regression_arm_writes_values_and_no_thresholds(tmp_path):
+    """label_def=value: pred_value filled, prob and logit null, no threshold fit."""
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["inference_only"], output=REGRESSION_OUTPUT)
+    inputs = build_inputs(tmp_path, label_value=lambda score: 100.0 * score)
+    spec = make_spec(registry, [arm(label_def="value")])
+    _result, ctx = run_stage(tmp_path, spec, inputs, FakeAdapter())
+
+    files = sorted(ctx.layout.artifact("predictions").glob("*.parquet"))
+    assert files and all("label_def=value" in f.name for f in files)
+    frame = read_table(files[0])
+    assert frame["prob"].isna().all() and frame["logit"].isna().all()
+    assert frame["pred_value"].notna().all()
+    assert list(frame.columns) == list(PREDICTION_COLUMNS)
+    entry = train_log(ctx)[0]
+    assert entry["thresholds"] == {} and entry["primary_threshold_policy"] is None
+
+
+def test_regression_arm_on_a_classification_card_is_rejected(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["inference_only"])  # softmax card
+    inputs = build_inputs(tmp_path)
+    spec = make_spec(registry, [arm(label_def="value")])
+    stage, ctx = make_context(tmp_path, spec, inputs, FakeAdapter())
+    with pytest.raises(ValueError, match="output.type"):
+        stage.run(ctx)
+
+
+def test_linear_probe_regression_selects_by_neg_mae(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "toy-a", modes=["linear_probe"], output=REGRESSION_OUTPUT)
+    inputs = build_inputs(tmp_path, label_value=lambda score: 100.0 * score)
+    adapter = FakeAdapter()
+    spec = make_spec(
+        registry,
+        [
+            arm(
+                training_mode="linear_probe",
+                label_def="value",
+                hparam_grid={"lr": [0.1, 0.01]},
+            )
+        ],
+    )
+    _result, ctx = run_stage(tmp_path, spec, inputs, adapter)
+    assert all(fit["data"]["objective"] == "mse" for fit in adapter.fits)
+    entry = train_log(ctx)[0]
+    assert entry["training"]["internal_cv"]["selection_metric"] == "neg_mae"
+    assert all("neg_mae" in c for c in entry["training"]["internal_cv"]["candidates"])

@@ -62,8 +62,10 @@ PREDICTION_COLUMNS = (
     "label_sens1",
     "label_sens2",
     "label_sens3",
+    "label_value",
     "prob",
     "logit",
+    "pred_value",
     "model_id",
     "training_mode",
     "recipe_id",
@@ -71,6 +73,16 @@ PREDICTION_COLUMNS = (
     "seed",
     "site",
 )
+
+#: The label_def of a regression arm (spec addendum: no new run_key axis, the
+#: label names the task). A regression arm reads ``label_value`` and writes
+#: ``pred_value``; ``prob``/``logit`` are null and no threshold is fit.
+REGRESSION_LABEL_DEF = "value"
+
+#: Hyperparameters for a regression arm are selected by negative dev MAE:
+#: AUROC has no meaning once the target is continuous, and smaller error is
+#: what a regression arm is trying to minimise.
+SELECTION_METRIC_REGRESSION = "neg_mae"
 
 #: Spec §4.4. Primary is `refit_sens95`: STEMI miss cost is asymmetric, so
 #: Youden — which weighs sensitivity and specificity equally — is clinically
@@ -168,6 +180,14 @@ class Arm:
     @property
     def label_column(self) -> str:
         return "label_" + self.label_def
+
+    @property
+    def is_regression(self) -> bool:
+        return self.label_def == REGRESSION_LABEL_DEF
+
+    @property
+    def objective(self) -> str:
+        return "mse" if self.is_regression else "bce"
 
     def describe(self) -> str:
         return f"arm {self.model_id}/{self.training_mode}"
@@ -283,7 +303,7 @@ class Record:
     tensor_path: str
     split: str
     fold: Optional[int]
-    labels: Mapping[str, Optional[int]]
+    labels: Mapping[str, Optional[float]]
 
 
 def load_tensors(paths: Sequence[str]) -> np.ndarray:
@@ -409,19 +429,21 @@ def _fit_payload(
     cohort scale. ``validation`` is the fold reserved for early stopping and is
     always dev — never test.
     """
+    dtype = np.float64 if arm.is_regression else np.int64
     return {
         "tensor_paths": [record.tensor_path for record in train],
-        "y": np.array([record.labels[arm.label_column] for record in train], dtype=np.int64),
+        "y": np.array([record.labels[arm.label_column] for record in train], dtype=dtype),
         "person_id": [record.person_id for record in train],
         "fold": [record.fold for record in train],
         "label_column": arm.label_column,
         "load_batch": loader,
         "batch_size": batch_size,
+        "objective": arm.objective,
         "validation": (
             {
                 "tensor_paths": [record.tensor_path for record in validation],
                 "y": np.array(
-                    [record.labels[arm.label_column] for record in validation], dtype=np.int64
+                    [record.labels[arm.label_column] for record in validation], dtype=dtype
                 ),
                 "person_id": [record.person_id for record in validation],
             }
@@ -717,6 +739,17 @@ class ModelsStage(Stage):
         loader = self._tensor_loader
         training: Dict[str, Any] = {"mode": arm.training_mode}
         if arm.training_mode == "inference_only":
+            # inference_only scores straight through the published card, so
+            # the card's declared output has to match what the arm expects;
+            # a trained arm's head is fitted to the arm's objective instead
+            # and needs no such check.
+            kind = card.output.get("type", "logits")
+            if arm.is_regression != (kind == "regression"):
+                raise ValueError(
+                    f"{context}: label_def {arm.label_def!r} needs output.type "
+                    f"{'regression' if arm.is_regression else 'logits/softmax'}, but the "
+                    f"card declares {kind!r}"
+                )
             handle = _adapter_method(adapter, "load", card)(card)
             dev_probs = _predict(adapter, handle, dev, loader, spec.batch_size, card)
             final_handle = handle
@@ -733,8 +766,13 @@ class ModelsStage(Stage):
             )
             training.update(detail)
 
-        scores = _scores_of(dev, dev_probs, arm.label_column)
-        thresholds = fit_thresholds(THRESHOLD_POLICIES, scores, card.threshold, card.model_id)
+        if arm.is_regression:
+            # A regression arm has no operating point to refit: thresholds are
+            # a classification concept.
+            thresholds = {}
+        else:
+            scores = _scores_of(dev, dev_probs, arm.label_column)
+            thresholds = fit_thresholds(THRESHOLD_POLICIES, scores, card.threshold, card.model_id)
 
         test_records = test_set.take()
         test_probs = (
@@ -792,7 +830,7 @@ class ModelsStage(Stage):
             },
             "training": training,
             "thresholds": {name: fit.to_dict() for name, fit in thresholds.items()},
-            "primary_threshold_policy": PRIMARY_THRESHOLD_POLICY,
+            "primary_threshold_policy": None if arm.is_regression else PRIMARY_THRESHOLD_POLICY,
             "contamination": contamination.to_dict(),
             # Spec §4.4: the fact that test was contacted is itself a recorded
             # result. `counts.test_contacts` carries it into the manifest.
@@ -866,8 +904,8 @@ class ModelsStage(Stage):
                 probs = _predict(adapter, fitted, held, loader, spec.batch_size, card)
                 for slot, position in enumerate(positions):
                     oof[position] = probs[slot]
-            score = auroc(oof, [record.labels[arm.label_column] for record in dev])
-            selection.append({"hparams": dict(hparams), SELECTION_METRIC: score})
+            score = _selection_score(oof, [record.labels[arm.label_column] for record in dev], arm)
+            selection.append({"hparams": dict(hparams), _selection_metric(arm): score})
             # Strict improvement only, so the first candidate of the
             # deterministically ordered grid wins a tie.
             if best is None or score > best[0]:
@@ -910,7 +948,7 @@ class ModelsStage(Stage):
             "fit_record": getattr(final_handle, "fit_record", None),
             "internal_cv": {
                 "folds": folds,
-                "selection_metric": SELECTION_METRIC,
+                "selection_metric": _selection_metric(arm),
                 "selection_split": DEV_SPLIT,
                 "candidates": selection,
                 "selected": dict(chosen),
@@ -1013,11 +1051,16 @@ def _require_columns(frame: Any, columns: Sequence[str], name: str) -> None:
         raise ValueError(f"{name} is missing columns {missing}; got {list(frame.columns)}")
 
 
-def _labels_from(frame: Any) -> Dict[str, Dict[str, Optional[int]]]:
-    labels: Dict[str, Dict[str, Optional[int]]] = {}
+#: label_value is continuous; every other label column is a 0/1 outcome.
+_REGRESSION_LABEL_COLUMN = "label_" + REGRESSION_LABEL_DEF
+
+
+def _labels_from(frame: Any) -> Dict[str, Dict[str, Optional[float]]]:
+    labels: Dict[str, Dict[str, Optional[float]]] = {}
     for row in frame.to_dict("records"):
         labels[str(row["image_occurrence_id"])] = {
-            column: _as_int(row.get(column)) for column in LABEL_COLUMNS
+            column: (_as_float if column == _REGRESSION_LABEL_COLUMN else _as_int)(row.get(column))
+            for column in LABEL_COLUMNS
         }
     return labels
 
@@ -1031,6 +1074,12 @@ def _as_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _as_float(value: Any) -> Optional[float]:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    return float(value)
 
 
 def _fold_sort_key(fold: Optional[int]) -> Tuple[int, int]:
@@ -1064,6 +1113,17 @@ def _partition_by_fold(
     ]
 
 
+def _selection_metric(arm: Arm) -> str:
+    return SELECTION_METRIC_REGRESSION if arm.is_regression else SELECTION_METRIC
+
+
+def _selection_score(predicted: np.ndarray, labels: Sequence[Optional[float]], arm: Arm) -> float:
+    """Higher is better either way: AUROC for classification, negative MAE for regression."""
+    if arm.is_regression:
+        return -float(np.mean(np.abs(predicted - np.asarray(labels, dtype=np.float64))))
+    return auroc(predicted, labels)
+
+
 def _scores_of(records: Sequence[Record], probs: np.ndarray, label_column: str) -> SplitScores:
     """Tag probabilities with the split their records actually came from.
 
@@ -1082,16 +1142,18 @@ def _scores_of(records: Sequence[Record], probs: np.ndarray, label_column: str) 
 def _rows(
     records: Sequence[Record], probs: np.ndarray, arm: Arm, ctx: StageContext
 ) -> List[Dict[str, Any]]:
-    logits = _logits(probs)
+    logits = [None] * len(records) if arm.is_regression else _logits(probs)
     rows: List[Dict[str, Any]] = []
     for position, record in enumerate(records):
+        value = float(probs[position])
         row: Dict[str, Any] = {
             "image_occurrence_id": record.image_occurrence_id,
             "person_id": record.person_id,
             "split": record.split,
             "fold": record.fold,
-            "prob": float(probs[position]),
+            "prob": None if arm.is_regression else value,
             "logit": logits[position],
+            "pred_value": value if arm.is_regression else None,
             "model_id": arm.model_id,
             "training_mode": arm.training_mode,
             "recipe_id": record.recipe_id,
