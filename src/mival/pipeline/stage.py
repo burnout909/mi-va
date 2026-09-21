@@ -32,17 +32,17 @@ from .runkey import RunKey
 # it is implemented; an unregistered name fails loudly rather than silently
 # doing nothing.
 _STAGES: Dict[str, str] = {
+    "retrieve": "mival.stages.retrieve:RetrieveStage",
     "preprocess": "mival.stages.preprocess:PreprocessStage",
     "models": "mival.stages.models:ModelsStage",
     "evaluate": "mival.stages.evaluate:EvaluateStage",
     "misclassify": "mival.stages.misclassify:MisclassifyStage",
 }
 
-# Stages 1 and 2 of spec §3.3, kept here so that `mival stages` shows the real
+# Stage 2 of spec §3.3, kept here so that `mival stages` shows the real
 # pipeline rather than only the parts that happen to be built, and so a typo is
 # distinguishable from a stage that is deliberately not built yet.
 _UNBUILT: Dict[str, str] = {
-    "retrieve": "blocked on Data4Life installation and MI-CDM access (Plan 6)",
     "profile": "blocked on Data4Life installation and MI-CDM access (Plan 6)",
 }
 

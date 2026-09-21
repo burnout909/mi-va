@@ -75,12 +75,12 @@ def test_stage_order_covers_all_six_stages_of_spec_section_3_3():
 
 
 def test_stage_names_lists_only_runnable_stages():
-    assert stage_names() == ["preprocess", "models", "evaluate", "misclassify"]
+    assert stage_names() == ["retrieve", "preprocess", "models", "evaluate", "misclassify"]
 
 
 def test_unbuilt_stage_reports_why_not_just_unknown():
     with pytest.raises(KeyError, match="Data4Life"):
-        get_stage("retrieve")
+        get_stage("profile")
 
 
 def test_unknown_stage_is_distinguishable_from_an_unbuilt_one():
