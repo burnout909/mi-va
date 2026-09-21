@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
@@ -133,7 +134,7 @@ def build_module(card: ModelCard) -> Any:
     if not builder:
         raise ValueError(f"{card.model_id!r}: weights_format {weights_format!r} needs x-mival.builder")
     module_name, _, attribute = builder["module"].partition(":")
-    constructor = getattr(importlib.import_module(module_name), attribute)
+    constructor = getattr(_import_builder_module(module_name, code_path, card.model_id), attribute)
     module = constructor(*builder.get("args", ()), **builder.get("kwargs", {}))
 
     state = _read_state_dict(uri, weights_format, ext.get("state_dict_key"))
@@ -142,6 +143,64 @@ def build_module(card: ModelCard) -> Any:
     _check_n_outputs(card, state)
     module.load_state_dict(state, strict=True)
     return module
+
+
+def _import_builder_module(module_name: str, code_path: Optional[str], model_id: str) -> Any:
+    """Import the builder module from this card's own code_path."""
+    import importlib
+    import sys
+
+    if not code_path:
+        return importlib.import_module(module_name)
+    root = Path(code_path).resolve()
+    own = _module_file_in(root, module_name)
+    if own is None:
+        # The card's code_path does not provide this module, so it comes from
+        # the environment and there is nothing to disambiguate.
+        return importlib.import_module(module_name)
+
+    module = importlib.import_module(module_name)
+    if _module_is_under(module, root):
+        return module
+
+    # code_path entries accumulate on sys.path across the cards of one run and
+    # sys.modules caches by bare name, so a second card declaring a module name
+    # another card already imported is handed that card's code. Drop the cached
+    # one and import this card's file, with its own root searched first.
+    for name in [key for key in list(sys.modules)
+                 if key == module_name or key.startswith(module_name + ".")]:
+        del sys.modules[name]
+    saved = list(sys.path)
+    sys.path.insert(0, str(root))
+    try:
+        module = importlib.import_module(module_name)
+    finally:
+        sys.path[:] = saved
+    if not _module_is_under(module, root):
+        raise ValueError(
+            f"{model_id!r}: builder module {module_name!r} resolved to "
+            f"{getattr(module, '__file__', None)!r}, but this card's x-mival.code_path is "
+            f"{str(root)!r}, which holds {str(own)!r}. A module of that name from another "
+            "card's code_path was found first on sys.path or in sys.modules; give one of "
+            "the two a distinct top-level name."
+        )
+    return module
+
+
+def _module_file_in(root: Path, module_name: str) -> Optional[Path]:
+    top = module_name.partition(".")[0]
+    for candidate in (root / f"{top}.py", root / top / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _module_is_under(module: Any, root: Path) -> bool:
+    origin = getattr(module, "__file__", None)
+    if origin is None:
+        return False
+    resolved = Path(origin).resolve()
+    return resolved == root or root in resolved.parents
 
 
 def _read_state_dict(uri: str, weights_format: str, state_dict_key: Optional[str]) -> Dict[str, Any]:

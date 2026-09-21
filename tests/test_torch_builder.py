@@ -180,3 +180,51 @@ def test_regression_card_without_value_index_names_the_model(tmp_path):
     adapter = get_adapter("torch")
     with pytest.raises(NotImplementedError, match="'tiny'.*value_index"):
         adapter.forward(adapter.load(card), batch())
+
+
+# ---------------------------------------------------------------------------
+# two cards, one module name
+# ---------------------------------------------------------------------------
+
+OTHER_TINY_MODULE = '''
+import torch
+
+class Tiny(torch.nn.Module):
+    """Same module and class name as the other card's code_path, different code."""
+    def __init__(self, n_in, n_out):
+        super().__init__()
+        self.dense = torch.nn.Linear(n_in, n_out)
+        self.marker = "second"
+    def forward(self, x):
+        return self.dense(x.flatten(1))
+'''
+
+
+def test_two_cards_with_the_same_module_name_each_load_their_own_code(tmp_path):
+    # code_path entries accumulate on sys.path and sys.modules caches by bare
+    # name, so the second card must not be handed the first card's class.
+    import torch
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    reference = torch.nn.Linear(4, 3)
+    torch.save({"dense.weight": reference.weight, "dense.bias": reference.bias}, tmp_path / "w.pt")
+    builder = {"module": "tinymod:Tiny", "kwargs": {"n_in": 4, "n_out": 3}}
+    card_one = write_card(first, tmp_path / "w.pt", "state_dict", builder=builder)
+    card_two = write_card(second, tmp_path / "w.pt", "state_dict", builder=builder,
+                          returns=["logits"])
+    # write_card lays down the shared fixture module; the second card's copy is
+    # replaced so the two code_paths really differ.
+    (second / "tinymod.py").write_text(OTHER_TINY_MODULE)
+
+    adapter = get_adapter("torch")
+    assert not hasattr(adapter.load(card_one).module, "marker")
+
+    handle_two = adapter.load(card_two)
+    assert handle_two.module.marker == "second"
+    assert type(handle_two.module).__module__ == "tinymod"
+
+    # And back again: the first card still gets its own module.
+    assert not hasattr(adapter.load(card_one).module, "marker")
