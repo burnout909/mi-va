@@ -103,12 +103,7 @@ class RetrieveStage(Stage):
 def resolve_local_path(cdm_path: Any, root: str) -> Optional[str]:
     """Re-root the part after 'files/' under this site's DICOM root (ledger A-1)."""
     _, sep, tail = str(cdm_path).partition("/files/")
-    # A bare filename with nothing after 'files/' is not a real CDM shard path
-    # (those always nest by patient), so it is left unresolved rather than
-    # rerooted into a path that does not exist.
-    if not sep or "/" not in tail:
-        return None
-    return str(Path(root) / "files" / tail)
+    return str(Path(root) / "files" / tail) if sep else None
 
 
 def exclude(frame, spec: RetrieveSpec, ledger):

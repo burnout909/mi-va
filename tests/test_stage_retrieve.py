@@ -72,7 +72,7 @@ def test_local_path_is_rerooted_under_the_site_root():
     cdm = f"{CDM_PREFIX}/s1/1.dcm"
     assert resolve_local_path(cdm, "/scratch/dicom") == "/scratch/dicom/files/p1000/p10000032/s1/1.dcm"
     assert resolve_local_path(cdm, "/other/root") == "/other/root/files/p1000/p10000032/s1/1.dcm"
-    assert resolve_local_path("/no/files/segment.dcm", "/scratch/dicom") is None
+    assert resolve_local_path("/no/segment.dcm", "/scratch/dicom") is None
 
 
 def test_labels_are_thresholded_and_sens2_uses_the_wide_window(tmp_path):
