@@ -89,6 +89,26 @@ def test_checkpoint_weights_use_state_dict_key_and_rename_keys(tmp_path):
     assert torch.equal(handle.module.dense.bias.cpu(), reference.bias)
 
 
+def test_checkpoint_with_numpy_float32_metadata_still_loads(tmp_path):
+    """A checkpoint's non-tensor metadata (e.g. a saved metric) is not always float64."""
+    import torch
+    reference = torch.nn.Linear(4, 3)
+    torch.save(
+        {
+            "epoch": 1,
+            "score": np.float32(0.5),
+            "state_dict": {"dense.weight": reference.weight, "dense.bias": reference.bias},
+        },
+        tmp_path / "w.pt",
+    )
+    card = write_card(tmp_path, tmp_path / "w.pt", "checkpoint",
+                      builder={"module": "tinymod:Tiny", "kwargs": {"n_in": 4, "n_out": 3}},
+                      extra={"state_dict_key": "state_dict"})
+    handle = get_adapter("torch").load(card)
+    probs = get_adapter("torch").forward(handle, batch())
+    assert probs.shape == (2,)
+
+
 def test_jit_weights_need_no_builder(tmp_path):
     import torch
     import sys

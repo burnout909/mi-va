@@ -151,9 +151,18 @@ def _read_state_dict(uri: str, weights_format: str, state_dict_key: Optional[str
         from safetensors.torch import load_file
 
         return load_file(uri)
-    # Pickle stays off. The two NumPy scalar types are what checkpoints of
-    # this project have been seen to carry as metadata.
-    safe_globals = [(np._core.multiarray.scalar, "numpy.core.multiarray.scalar"), (np.dtype, "numpy.dtype"), type(np.dtype(np.float64))]
+    # Pickle stays off. A checkpoint's non-tensor metadata (e.g. saved metrics)
+    # can carry any of NumPy's common scalar dtypes, not just float64, so the
+    # allow-list covers the dtype classes rather than one instance of one; the
+    # scalar reconstructor is allow-listed both under NumPy's pre-2.0 module
+    # path (what older checkpoints were pickled with) and its own current
+    # path (what a checkpoint written in this environment's NumPy pickles).
+    safe_globals = [
+        (np._core.multiarray.scalar, "numpy.core.multiarray.scalar"),
+        np._core.multiarray.scalar,
+        (np.dtype, "numpy.dtype"),
+        *[type(np.dtype(name)) for name in ("float32", "float64", "int32", "int64", "bool")],
+    ]
     with torch.serialization.safe_globals(safe_globals):
         loaded = torch.load(uri, map_location="cpu", weights_only=True)
     if weights_format == "checkpoint":
