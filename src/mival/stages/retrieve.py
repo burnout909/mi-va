@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import decimal
 import json
 import os
 import re
@@ -174,6 +175,21 @@ def write_summary(ctx: StageContext, frame, kept) -> Path:
     return path
 
 
+def _decimals_to_float(frame):
+    """Cast every column whose non-null values are ``decimal.Decimal`` to float64.
+
+    psycopg maps Postgres ``numeric`` to ``decimal.Decimal``, and numpy cannot
+    mix ``Decimal`` with ``float`` (e.g. quantile's linear interpolation), so
+    every such column is normalized once, right where a query result enters
+    this process. Nothing here is specific to any one column or label.
+    """
+    for column in frame.columns:
+        present = frame[column].dropna()
+        if not present.empty and isinstance(present.iloc[0], decimal.Decimal):
+            frame[column] = frame[column].astype(float)
+    return frame
+
+
 def query_postgres(sql: str, params: Mapping[str, Any], dsn_env: str):
     """Run one query with libpq settings read from an env file; nothing is logged."""
     import pandas
@@ -186,4 +202,5 @@ def query_postgres(sql: str, params: Mapping[str, Any], dsn_env: str):
     with psycopg.connect() as connection, connection.cursor() as cursor:
         cursor.execute(sql, params)
         columns = [column.name for column in cursor.description]
-        return pandas.DataFrame(cursor.fetchall(), columns=columns)
+        frame = pandas.DataFrame(cursor.fetchall(), columns=columns)
+        return _decimals_to_float(frame)

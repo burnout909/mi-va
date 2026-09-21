@@ -1,5 +1,6 @@
 """Retrieve stage (spec §4.1) against an injected query, so no database is needed."""
 
+import decimal
 from datetime import date, datetime
 
 import pandas as pd
@@ -16,6 +17,7 @@ from mival.stages.retrieve import (  # noqa: E402
     COHORT_INDEX_COLUMNS,
     SUMMARY,
     RetrieveStage,
+    _decimals_to_float,
     resolve_local_path,
 )
 
@@ -129,3 +131,17 @@ def test_sql_is_copied_and_summary_written(tmp_path):
 
 def test_stage_is_registered():
     assert get_stage("retrieve").name == "retrieve"
+
+
+def test_decimals_to_float_converts_decimal_columns_only():
+    frame = pd.DataFrame({
+        "label_value": [decimal.Decimal("35.0"), None, decimal.Decimal("55.5")],
+        "image_occurrence_id": [1, 2, 3],
+    })
+    out = _decimals_to_float(frame)
+    assert out["label_value"].dtype == "float64"
+    assert out["label_value"].tolist()[0] == 35.0
+    assert pd.isna(out["label_value"].tolist()[1])
+    assert out["label_value"].tolist()[2] == 55.5
+    assert out["image_occurrence_id"].dtype == frame["image_occurrence_id"].dtype
+    assert out["image_occurrence_id"].tolist() == [1, 2, 3]
