@@ -219,6 +219,11 @@ class EvaluateStage(Stage):
                         if not len(labelled):
                             continue
                         if is_regression(key):
+                            # The same rows _regression_rows scores: a null
+                            # pred_value would plot as a gap the metrics never saw.
+                            labelled = labelled[labelled["pred_value"].notna()]
+                            if not len(labelled):
+                                continue
                             scatter.setdefault(outcome, []).append(
                                 (
                                     _curve_label(key),
@@ -373,9 +378,14 @@ class _Settings:
         )
         self.draw_figures = bool(spec.get("figures", True))
         self.min_events = int(spec.get("min_events", SUBGROUP_SUPPRESS_MIN_EVENTS))
-        self.regression_cuts: Tuple[float, ...] = tuple(
-            float(cut) for cut in spec.get("regression_cuts", DEFAULT_REGRESSION_CUTS)
-        )
+        cuts = spec.get("regression_cuts", DEFAULT_REGRESSION_CUTS)
+        # The first cut defines the event stratum a regression arm's bootstrap
+        # resamples on, so an empty or scalar setting has no silent fallback.
+        if not isinstance(cuts, (list, tuple)) or not cuts:
+            raise ValueError(
+                f"evaluate.regression_cuts must be a non-empty list of numbers, got {cuts!r}"
+            )
+        self.regression_cuts: Tuple[float, ...] = tuple(float(cut) for cut in cuts)
 
     @classmethod
     def from_spec(cls, spec, default_decision_thresholds, default_murphy_bins) -> "_Settings":

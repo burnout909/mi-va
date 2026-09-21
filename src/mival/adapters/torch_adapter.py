@@ -56,11 +56,10 @@ ALLOWED_RETURNS = frozenset({"logits", "features", "ignore"})
 
 
 def _validate_returns(card: ModelCard) -> None:
-    """A misnamed position (e.g. a typo) would silently read as None in ``_module_outputs``.
-
-    Checked once at load rather than on every forward call, since every handle
-    is built through ``load`` first.
-    """
+    """Reject a runtime.returns name this adapter does not know."""
+    # A misnamed position (a typo, say) would silently read as None in
+    # _module_outputs. Checked once at load rather than on every forward call,
+    # since every handle is built through load first.
     names = card.runtime.get("returns", DEFAULT_RETURNS)
     for name in names:
         if name not in ALLOWED_RETURNS:
@@ -115,7 +114,6 @@ def _as_tensor(array: np.ndarray, device: str, dtype: Any) -> Any:
 
 def build_module(card: ModelCard) -> Any:
     """Construct the module the card declares and load its weights into it."""
-    import importlib
     import sys
 
     import torch
@@ -282,7 +280,7 @@ class TorchAdapter(Adapter):
         whether the head is a softmax or per-class logits, are card facts. A
         classification checkpoint whose card names no ``positive_index``
         publishes no probability for this outcome, and ``inference_only`` is
-        genuinely unavailable for it — that is a property of the model, so the
+        genuinely unavailable for it. That is a property of the model, so the
         error says which model and what to do instead. A regression card names
         no ``positive_index`` at all, so that check does not apply to it, but it
         must name a ``value_index`` instead, checked the same way.

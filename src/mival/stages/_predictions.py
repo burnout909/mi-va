@@ -97,6 +97,11 @@ def load_predictions(path: Path, label_def: Optional[str] = None):
         predictions = read_table(target)
         if "label_def" not in predictions.columns and label_def is not None:
             predictions["label_def"] = label_def
+        # See _NUMERIC_PREDICTION_COLUMNS: the same dtypes a directory gets, so
+        # one file and a directory of one file do not read differently.
+        for column in _NUMERIC_PREDICTION_COLUMNS:
+            if column in predictions.columns:
+                predictions[column] = predictions[column].astype("float64")
 
     missing = [
         column

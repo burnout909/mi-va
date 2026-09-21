@@ -403,7 +403,7 @@ def _predict(
     batch_size: int,
     card: ModelCard,
 ) -> np.ndarray:
-    """Positive-class probabilities for ``records``, in order."""
+    """The adapter's score per record, in order: a probability, or a regression value."""
     forward = _adapter_method(adapter, "forward", card)
     chunks: List[np.ndarray] = []
     for start in range(0, len(records), batch_size):
@@ -700,7 +700,7 @@ class ModelsStage(Stage):
             )
         return kept, len(rows)
 
-    def _label_source(self, ctx: StageContext, index: Any) -> Dict[str, Dict[str, Optional[int]]]:
+    def _label_source(self, ctx: StageContext, index: Any) -> Dict[str, Dict[str, Optional[float]]]:
         """Labels per ``image_occurrence_id``.
 
         Preprocess is free to carry the labels forward on its index; when it

@@ -495,21 +495,13 @@ def fit_linear_head(
     context: str = "linear_probe",
     objective: str = "bce",
 ) -> Tuple[LinearHead, Dict[str, Any]]:
-    """Logistic (``bce``) or linear (``mse``) regression on a frozen representation, by full-batch Adam.
-
-    Full batch rather than mini-batch because the representation is already in
-    memory and the objective is convex, so there is no reason to add gradient
-    noise. The weights start at zero and the bias at the training log-odds:
-    with a convex objective and a deterministic start, the fit does not consume
-    randomness at all, which is why ``linear_probe`` reproduces exactly
-    regardless of the seed.
-
-    Features are standardised on the training rows. Adam is scale-sensitive in
-    practice and ECG representations have wildly differing per-unit variances,
-    so an unstandardised fit converges at very different rates per dimension.
-    The statistics travel inside the returned head, so inference applies the
-    same transform.
-    """
+    """Logistic (``bce``) or linear (``mse``) regression on a frozen representation, by full-batch Adam."""
+    # Full batch rather than mini-batch: the representation is already in
+    # memory and the objective is convex, so gradient noise buys nothing. The
+    # weights start at zero and the bias at the training log-odds for bce, at
+    # the training mean for mse; with a convex objective and a deterministic
+    # start the fit consumes no randomness at all, which is why linear_probe
+    # reproduces exactly regardless of the seed.
     X = np.asarray(features, dtype=np.float64)
     y = np.asarray(labels, dtype=np.float64).ravel()
     if X.ndim != 2 or X.shape[0] != y.size:
@@ -519,6 +511,11 @@ def fit_linear_head(
     if y.size == 0:
         raise TrainingError(f"{context}: no training rows")
 
+    # Standardised on the training rows: Adam is scale-sensitive in practice
+    # and these representations have wildly differing per-unit variances, so an
+    # unstandardised fit converges at very different rates per dimension. The
+    # statistics travel inside the returned head, so inference applies the same
+    # transform.
     mean = X.mean(axis=0)
     scale = X.std(axis=0)
     # A constant feature carries no information; dividing by its zero spread

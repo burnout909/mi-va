@@ -93,10 +93,20 @@ def write_summary(ctx: StageContext, cohort, split, spec: ProfileSpec, test_posi
     payload = {
         "splits": by_split,
         "gate": {"min_test_positives": spec.min_test_positives, "test_positives": test_positives, "passed": True},
-        "label_value_quantiles": {f"p{int(q * 100)}": float(v) for q, v in cohort["label_value"].quantile([0.05, 0.25, 0.5, 0.75, 0.95]).items()},
-        "label_delta_days": {str(k): int(v) for k, v in cohort["label_delta_days"].value_counts().sort_index().items()},
         "ecgs_per_person": {str(k): int(v) for k, v in cohort.groupby("person_id").size().value_counts().sort_index().items()},
     }
+    # Both describe a continuous label and the delay to it; a cohort built for a
+    # binary outcome carries neither, and their absence is not a failure.
+    if "label_value" in cohort.columns:
+        payload["label_value_quantiles"] = {
+            f"p{int(q * 100)}": float(v)
+            for q, v in cohort["label_value"].quantile([0.05, 0.25, 0.5, 0.75, 0.95]).items()
+        }
+    if "label_delta_days" in cohort.columns:
+        payload["label_delta_days"] = {
+            str(k): int(v)
+            for k, v in cohort["label_delta_days"].value_counts().sort_index().items()
+        }
     path = ctx.layout.artifact(SUMMARY)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path

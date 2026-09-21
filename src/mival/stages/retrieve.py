@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import decimal
 import json
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -204,13 +203,11 @@ def write_summary(ctx: StageContext, frame, kept, snapshot: Mapping[str, Any]) -
 
 
 def _decimals_to_float(frame):
-    """Cast every column whose non-null values are ``decimal.Decimal`` to float64.
-
-    psycopg maps Postgres ``numeric`` to ``decimal.Decimal``, and numpy cannot
-    mix ``Decimal`` with ``float`` (e.g. quantile's linear interpolation), so
-    every such column is normalized once, right where a query result enters
-    this process. Nothing here is specific to any one column or label.
-    """
+    """Cast every column whose non-null values are ``decimal.Decimal`` to float64."""
+    # psycopg maps Postgres numeric to decimal.Decimal, and numpy cannot mix
+    # Decimal with float (quantile's linear interpolation, say), so every such
+    # column is normalized once, right where a query result enters this
+    # process. Nothing here is specific to any one column or label.
     for column in frame.columns:
         present = frame[column].dropna()
         if not present.empty and isinstance(present.iloc[0], decimal.Decimal):
@@ -218,16 +215,31 @@ def _decimals_to_float(frame):
     return frame
 
 
+def read_connection_settings(dsn_env: str) -> dict:
+    """The connection keywords held in an env file; the values are never logged."""
+    # Kept out of os.environ: exporting them would leak the credentials into
+    # every subprocess of this run, and into anything that dumps the
+    # environment. Only the path of this file ever enters a hash.
+    keywords = {"PGHOST": "host", "PGPORT": "port", "PGDATABASE": "dbname",
+                "PGUSER": "user", "PGPASSWORD": "password"}
+    settings = {}
+    for line in Path(dsn_env).read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        if sep and key in keywords:
+            settings[keywords[key]] = value.strip().strip("'\"")
+    return settings
+
+
 def query_postgres(sql: str, params: Mapping[str, Any], dsn_env: str):
     """Run one query with libpq settings read from an env file; nothing is logged."""
     import pandas
     import psycopg
 
-    for line in Path(dsn_env).read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.partition("=")
-        if sep and key.strip().startswith("PG"):
-            os.environ[key.strip()] = value.strip().strip("'\"")
-    with psycopg.connect() as connection, connection.cursor() as cursor:
+    settings = read_connection_settings(dsn_env)
+    with psycopg.connect(**settings) as connection, connection.cursor() as cursor:
         cursor.execute(sql, params)
         columns = [column.name for column in cursor.description]
         frame = pandas.DataFrame(cursor.fetchall(), columns=columns)

@@ -173,6 +173,14 @@ def test_regression_cut_comes_from_the_spec(tmp_path):
     assert {"auroc_below@35", "auroc_below@50"} <= set(reg["metric"])
 
 
+def test_an_empty_regression_cuts_setting_is_rejected(tmp_path):
+    # The first cut defines the bootstrap's event stratum; there is no fallback.
+    for cuts in ([], 40.0, None):
+        with pytest.raises(ValueError, match="regression_cuts"):
+            run_stage(tmp_path, {**BASE_SPEC, "regression_cuts": cuts},
+                      subdirectory=f"cuts-{cuts}", regression=True)
+
+
 def test_the_output_columns_are_exactly_the_pinned_schema(tmp_path):
     _, _, table = run_stage(tmp_path, BASE_SPEC)
     assert tuple(table.columns) == METRICS_LONG_COLUMNS
