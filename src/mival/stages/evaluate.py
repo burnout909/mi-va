@@ -212,7 +212,14 @@ class EvaluateStage(Stage):
                             contaminated=settings.is_contaminated(key),
                         )
                     )
-                    if subgroup == SUBGROUP_ALL and outcome == settings.primary_outcome:
+                    if (
+                        subgroup == SUBGROUP_ALL
+                        and outcome == settings.primary_outcome
+                        and key.split == TEST_SPLIT
+                    ):
+                        # The figures compare arms on held-out data: one
+                        # series per arm. Dev folds are internal-CV
+                        # predictions and stay in metrics_long only.
                         # Same restriction the metrics use: a record without a
                         # label for this outcome is not part of this curve.
                         labelled = slice_frame[slice_frame[label_column].notna()]

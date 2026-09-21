@@ -602,6 +602,23 @@ def test_an_extra_outcome_column_becomes_another_value_of_the_outcome_axis(tmp_p
     assert set(table["outcome"]) == {"stemi", "mortality_30d"}
 
 
+def test_curve_figures_draw_the_test_split_only(tmp_path, monkeypatch):
+    """One curve per arm on held-out data. Dev folds are internal-CV
+    predictions; drawing each as its own series buries the comparison under
+    a legend of k*arms entries."""
+    pytest.importorskip("matplotlib")
+    from mival import figures as figure_module
+
+    seen = {}
+    real = figure_module.roc_pr_curves
+    monkeypatch.setattr(
+        figure_module, "roc_pr_curves",
+        lambda series, path: seen.setdefault("labels", [s[0] for s in series]) and real(series, path),
+    )
+    run_stage(tmp_path, dict(BASE_SPEC, figures=True))
+    assert seen["labels"] and all(label.endswith("/test") for label in seen["labels"])
+
+
 def test_figures_are_written_as_code_artifacts(tmp_path):
     pytest.importorskip("matplotlib")
     spec = dict(BASE_SPEC, figures=True)
