@@ -14,6 +14,9 @@ REASON_CODES: FrozenSet[str] = frozenset(
         "duration_short",
         "unit_missing",
         "rate_unsupported",
+        # The record's file could not be read at all (spec §10): a loader
+        # failure is one record's exclusion, never the whole run's abort.
+        "read_failed",
     }
 )
 

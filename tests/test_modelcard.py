@@ -33,6 +33,7 @@ def test_reason_codes_are_the_agreed_vocabulary():
             "duration_short",
             "unit_missing",
             "rate_unsupported",
+            "read_failed",
         }
     )
 

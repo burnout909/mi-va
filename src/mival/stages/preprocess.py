@@ -304,7 +304,19 @@ class PreprocessStage(Stage):
                 )
             seen.add(image_occurrence_id)
 
-            data, source = loader(Path(str(record.local_path)))
+            try:
+                data, source = loader(Path(str(record.local_path)))
+            except Exception as exc:  # noqa: BLE001
+                # A file this stage cannot read is one record's exclusion, not
+                # the run's abort (spec §10): a single corrupt or unexpected
+                # file would otherwise lose every record after it.
+                ctx.ledger.record(
+                    image_occurrence_id,
+                    person_id,
+                    "read_failed",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                continue
             signal = Signal(
                 data=data,
                 leads=source.leads,

@@ -381,8 +381,52 @@ def test_each_compile_failure_reaches_the_ledger_with_its_own_reason_code(
 
 
 def test_the_five_gate_cases_cover_the_whole_reason_code_vocabulary():
-    assert set(GATE_CASES) == set(REASON_CODES)
+    # read_failed is not a compile gate: the record never reaches the compiler
+    # because its file could not be read at all.
+    assert set(GATE_CASES) == set(REASON_CODES) - {"read_failed"}
     assert PreprocessStage.reason_codes == REASON_CODES
+    assert "read_failed" in PreprocessStage.reason_codes
+
+
+def test_an_unreadable_record_is_excluded_and_the_run_continues(tmp_path):
+    # Spec §10: a file this stage cannot read costs one record, not the run.
+    registry = tmp_path / "registry"
+    write_card(registry, "alpha")
+    good = write_record(tmp_path / "raw" / "good.npz", record_index=0)
+    bad = tmp_path / "raw" / "bad.npz"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"this is not an npz bundle")
+    cohort = write_cohort(
+        tmp_path / "cohort_index.parquet",
+        [
+            {
+                "image_occurrence_id": "img-bad",
+                "person_id": "p-0",
+                "local_path": str(bad),
+                "label_primary": 1,
+            },
+            {
+                "image_occurrence_id": "img-good",
+                "person_id": "p-1",
+                "local_path": str(good),
+                "label_primary": 0,
+            },
+        ],
+    )
+    stage = PreprocessStage()
+    ctx = context(tmp_path, {"registry": str(registry)}, cohort, stage=stage)
+    ctx.layout.create_dirs()
+    result = stage.run(ctx)
+
+    assert ctx.ledger.counts() == {"read_failed": 1}
+    row = ctx.ledger.rows[0]
+    assert row["image_occurrence_id"] == "img-bad"
+    assert row["detail"]
+
+    assert result.counts["in"] == 2
+    assert result.counts["out"] == 1
+    frame = read_table(ctx.layout.artifact(PREPROCESS_INDEX))
+    assert list(frame["image_occurrence_id"]) == ["img-good"]
 
 
 def test_allow_upsample_and_pad_policy_are_the_documented_escape_hatches(tmp_path):
