@@ -427,6 +427,28 @@
   </div>
 </section>
 
+<!-- 14 -->
+<section class="slide">
+  <h2>추가할 metrics</h2>
+  <ul>
+    <li><strong>Reference</strong>: Maier-Hein L, Reinke A, Godau P, et al. <em>Metrics reloaded: recommendations for image analysis validation.</em> Nat Methods 2024;21:195–212. doi:10.1038/s41592-023-02151-z</li>
+    <li class="key">우리 문제의 fingerprint: <strong>image-level classification</strong>, 이진, 클래스 점수 있음, 양성 24%(불균형), 결정 규칙은 <em>민감도 95% 목표값</em>, 환자당 ECG 여러 건(비독립). 아래는 이 fingerprint로 S2~S5를 따라갔을 때 지금 없는 지표.</li>
+  </ul>
+  <ul>
+    <li><strong>EC (Expected Cost)</strong>: FP와 FN에 비용을 매겨 계산한 기대 비용. 불균형과 비대칭 비용을 함께 보정하는 다중클래스 counting metric으로 논문이 1순위로 권고. 비용은 study.yaml에 선언.</li>
+    <li><strong>Confusion matrix</strong>: 운영 임계값에서의 TP/FP/FN/TN 건수. 결정 규칙이 있으면 항상 그대로 보고하라는 권고.</li>
+    <li><strong>Specificity@Sensitivity=0.95</strong>: 결정 규칙이 목표값 기반이면 per-class counting metric은 Metric@TargetValue 형태로 보고. 지금 sens/spec을 이 이름으로 바꿔 보고.</li>
+    <li><strong>LR+ (positive likelihood ratio)</strong>: sens / (1 − spec). 유병률에 독립적인 검사 성능. 유병률이 대상 인구를 반영할 때 Sensitivity, F<sub>β</sub>와 함께 선택.</li>
+    <li><strong>F<sub>β</sub> score</strong>: β &gt; 1로 FN을 FP보다 무겁게. 지금은 F1만 있음. β는 study 값.</li>
+    <li><strong>ECE (Expected Calibration Error, top-label)</strong>: 확률 구간별 |관측 − 예측|의 가중 평균. 보정 오차를 숫자 하나로.</li>
+    <li><strong>RBS (Root Brier Score)</strong>: Brier의 제곱근. 확률 단위로 읽히며 보정과 판별을 함께 담는 overall 지표.</li>
+    <li><strong>NLL (Negative Log Likelihood)</strong>: 로그 손실. 예측 확률 자체의 질을 재는 proper scoring rule.</li>
+    <li><strong>O:E ratio</strong>: 관측 사건 수 / 예측 확률 합. CITL의 직관적 표현. 보정 곡선(reliability diagram)과 함께.</li>
+    <li><strong>환자 단위 집계</strong>: 환자당 ECG 여러 건이므로 지표를 환자 단위로 먼저 모은 값도 보고(bootstrap은 이미 환자 단위). 비결정성은 seed를 바꾼 반복 실행으로.</li>
+  </ul>
+  <p class="meta">이미 있는 것: AUROC · AP(AUPRC) · BA · MCC · Brier · calibration slope/intercept · CITL · net benefit · 환자 단위 bootstrap CI. 회귀는 논문 범위 밖이라 MAE/RMSE/R² 유지.</p>
+</section>
+
 </div>
 
 <script>
