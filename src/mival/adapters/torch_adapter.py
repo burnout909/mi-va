@@ -202,24 +202,26 @@ class TorchAdapter(Adapter):
 
     def forward(self, handle: TorchHandle, batch: np.ndarray) -> np.ndarray:
         if handle.head is not None:
-            return handle.head.probabilities(self.features(handle, batch))
-        return self._published_probabilities(handle, batch)
+            return handle.head.predict(self.features(handle, batch))
+        return self._published_scores(handle, batch)
 
-    def _published_probabilities(
+    def _published_scores(
         self, handle: TorchHandle, batch: np.ndarray
     ) -> np.ndarray:
-        """The checkpoint's own positive-class score, when the card declares one.
+        """The checkpoint's own score: a positive-class probability, or a regression value.
 
-        Which column is the positive class, and whether the head is a softmax
-        or per-class logits, are card facts. A checkpoint whose card names no
-        ``positive_index`` publishes no probability for this outcome, and
-        ``inference_only`` is genuinely unavailable for it — that is a property
-        of the model, so the error says which model and what to do instead.
+        Which column is the positive class (or the regression value), and
+        whether the head is a softmax or per-class logits, are card facts. A
+        classification checkpoint whose card names no ``positive_index``
+        publishes no probability for this outcome, and ``inference_only`` is
+        genuinely unavailable for it — that is a property of the model, so the
+        error says which model and what to do instead. A regression card names
+        no ``positive_index`` at all, so that check does not apply to it.
         """
         import torch
 
-        index = handle.card.output.get("positive_index")
-        if index is None:
+        kind = handle.card.output.get("type", "logits")
+        if kind != "regression" and handle.card.output.get("positive_index") is None:
             raise NotImplementedError(
                 f"{handle.card.model_id!r} declares no output.positive_index, so its "
                 "checkpoint emits no probability for this outcome. Fit a head with "
@@ -232,29 +234,31 @@ class TorchAdapter(Adapter):
         if logits is None:
             raise NotImplementedError(
                 f"{handle.card.model_id!r} returns a representation only; there is no "
-                "published head to read a probability from"
+                "published head to read a score from"
             )
-        return self._positive_probability(handle, logits).detach().cpu().numpy().astype(
+        return self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(
             np.float64
         )
 
-    def _positive_probability(self, handle: TorchHandle, logits: Any) -> Any:
-        """Card-driven read of the positive class, kept as a tensor.
+    def _score_from_outputs(self, handle: TorchHandle, outputs: Any) -> Any:
+        """Positive-class probability, or the value column for a regression card.
 
         ``forward`` detaches it; ``attribute`` differentiates through it. Both
         must read the same column of the same head, so the branch lives once.
         """
         import torch
 
-        index = int(handle.card.output["positive_index"])
         kind = handle.card.output.get("type", "logits")
+        if kind == "regression":
+            return outputs[:, int(handle.card.output["value_index"])]
+        index = int(handle.card.output["positive_index"])
         if kind == "softmax":
-            return torch.softmax(logits, dim=-1)[:, index]
+            return torch.softmax(outputs, dim=-1)[:, index]
         if kind in ("logits", "sigmoid"):
-            return torch.sigmoid(logits[:, index])
+            return torch.sigmoid(outputs[:, index])
         raise ValueError(
-            f"{handle.card.model_id!r}: unsupported output.type {kind!r}; the torch "
-            "adapter reads 'softmax', 'logits' or 'sigmoid'"
+            f"unknown output.type {kind!r}; adapter reads 'softmax', 'logits', 'sigmoid' or "
+            "'regression'"
         )
 
     def trainable_groups(self, handle: TorchHandle) -> List[str]:
@@ -319,6 +323,11 @@ class TorchAdapter(Adapter):
         import torch
 
         if handle.head is None:
+            if handle.card.output.get("type") == "regression":
+                raise NotImplementedError(
+                    "attribution is defined for probabilities; regression arms are "
+                    "skipped in stage 6"
+                )
             logits, _features = _module_outputs(handle, tensor)
             if logits is None:
                 raise NotImplementedError(
@@ -330,9 +339,14 @@ class TorchAdapter(Adapter):
                     f"{handle.card.model_id!r} declares no output.positive_index, so there "
                     "is no probability to attribute. Fit a head first."
                 )
-            return self._positive_probability(handle, logits)
+            return self._score_from_outputs(handle, logits)
 
         head = handle.head
+        if head.link == "identity":
+            raise NotImplementedError(
+                "attribution is defined for probabilities; regression arms are "
+                "skipped in stage 6"
+            )
         features = _module_features(handle, tensor)
         as_tensor = lambda values: torch.as_tensor(  # noqa: E731 - three identical conversions
             np.asarray(values, dtype=np.float64), dtype=features.dtype, device=features.device
@@ -426,23 +440,31 @@ class TorchAdapter(Adapter):
 
         width = self._feature_width(handle, module, data, layout, device)
         head = torch.nn.Linear(width, 1).to(device)
-        # Starting the bias at the training log-odds means epoch 0 already
-        # predicts the base rate, so the first gradients carry signal about the
-        # features rather than about the prevalence.
-        prevalence = float(data.train.y.mean())
+        # Starting the bias at the training log-odds (or, for a regression
+        # objective, the training mean) means epoch 0 already predicts the
+        # base rate, so the first gradients carry signal about the features
+        # rather than about the prevalence.
         with torch.no_grad():
-            head.bias.fill_(
-                float(np.log(prevalence / (1.0 - prevalence)))
-                if 0.0 < prevalence < 1.0
-                else 0.0
-            )
+            if data.objective == "mse":
+                head.bias.fill_(float(data.train.y.mean()))
+            else:
+                prevalence = float(data.train.y.mean())
+                head.bias.fill_(
+                    float(np.log(prevalence / (1.0 - prevalence)))
+                    if 0.0 < prevalence < 1.0
+                    else 0.0
+                )
 
         parameters = [p for p in module.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(
             list(head.parameters()) + parameters, lr=hp.lr, weight_decay=hp.weight_decay
         )
-        criterion = torch.nn.BCEWithLogitsLoss(
-            pos_weight=torch.tensor(hp.pos_weight, dtype=torch.float32, device=device)
+        criterion = (
+            torch.nn.MSELoss()
+            if data.objective == "mse"
+            else torch.nn.BCEWithLogitsLoss(
+                pos_weight=torch.tensor(hp.pos_weight, dtype=torch.float32, device=device)
+            )
         )
 
         rng = np.random.default_rng(hp.seed)
@@ -480,9 +502,9 @@ class TorchAdapter(Adapter):
                 trace.append({"epoch": epoch, "train_loss": train_loss})
                 continue
 
-            probs = self._probabilities(handle, module, head, data, data.validation, layout, device)
+            outputs = self._outputs(handle, module, head, data, data.validation, layout, device)
             score = validation_score(
-                probs, data.validation.y, hp.early_stopping_metric, f"{mode} fit"
+                outputs, data.validation.y, hp.early_stopping_metric, f"{mode} fit", data.objective
             )
             trace.append(
                 {
@@ -507,11 +529,14 @@ class TorchAdapter(Adapter):
         # the fit is lost: the backbone's learned weights live in `module`.
         with torch.no_grad():
             lifted = LinearHead.of(
-                head.weight.detach().cpu().numpy(), float(head.bias.detach().cpu())
+                head.weight.detach().cpu().numpy(),
+                float(head.bias.detach().cpu()),
+                link="identity" if data.objective == "mse" else "logistic",
             )
         record = {
             "mode": mode,
-            "head": "logistic",
+            "head": "linear" if data.objective == "mse" else "logistic",
+            "objective": data.objective,
             "optimizer": "adamw",
             "hparams": hp.to_record(),
             "n_train": len(data.train),
@@ -525,7 +550,9 @@ class TorchAdapter(Adapter):
             "best_epoch": stopper.best_epoch,
             "best_validation_score": stopper.best_primary,
             "validation_metric": (
-                hp.early_stopping_metric if data.validation is not None else None
+                ("mae" if data.objective == "mse" else hp.early_stopping_metric)
+                if data.validation is not None
+                else None
             ),
             "trace": trace,
         }
@@ -573,7 +600,7 @@ class TorchAdapter(Adapter):
         arranged = to_model_layout(data.load_batch(paths), layout)
         return torch.from_numpy(np.ascontiguousarray(arranged)).to(device)
 
-    def _probabilities(
+    def _outputs(
         self,
         handle: TorchHandle,
         module: Any,
@@ -583,6 +610,7 @@ class TorchAdapter(Adapter):
         layout: str,
         device: str,
     ) -> np.ndarray:
+        """Validation predictions: probabilities for ``bce``, values for ``mse``."""
         import torch
 
         module.eval()
@@ -592,7 +620,8 @@ class TorchAdapter(Adapter):
             for indices in epoch_batches(len(split), data.batch_size):
                 tensor = self._batch_tensor(data, split, indices, layout, device)
                 logits = head(_module_features(handle, tensor, module=module)).squeeze(-1)
-                chunks.append(torch.sigmoid(logits).cpu().numpy())
+                values = logits if data.objective == "mse" else torch.sigmoid(logits)
+                chunks.append(values.cpu().numpy())
         return np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float64)
 
 

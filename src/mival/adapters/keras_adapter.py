@@ -83,8 +83,11 @@ class KerasAdapter(Adapter):
             # probability level, by the card's own rule. Each member's head
             # emits a positive-class probability, so the two-column form
             # `pool_ensemble` expects is rebuilt from it.
+            # `_as_two_class` also fits an identity head: column 1 is then the
+            # predicted value rather than a probability, and `pool_ensemble`
+            # still averages it across members the same way.
             outputs = [
-                _as_two_class(head.probabilities(self.features(handle, batch, index)))
+                _as_two_class(head.predict(self.features(handle, batch, index)))
                 for index, head in enumerate(handle.heads)
             ]
             return pool_ensemble(outputs, self._pooling(handle), 1)
@@ -92,11 +95,12 @@ class KerasAdapter(Adapter):
         outputs = [
             np.asarray(member(arranged, training=False)) for member in handle.members
         ]
-        return pool_ensemble(
-            outputs,
-            self._pooling(handle),
-            handle.card.output["positive_index"],
+        column = (
+            handle.card.output["value_index"]
+            if handle.card.output.get("type") == "regression"
+            else handle.card.output["positive_index"]
         )
+        return pool_ensemble(outputs, self._pooling(handle), column)
 
     def _pooling(self, handle: KerasHandle) -> str:
         return handle.card.ensemble.get("method", "none")

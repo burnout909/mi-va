@@ -15,6 +15,7 @@ import json
 import numpy as np
 import pytest
 
+from mival.adapters import get_adapter
 from mival.adapters._training import LinearHead, TrainingError
 from mival.adapters.torch_adapter import TorchAdapter, TorchHandle
 from mival.modelcard import load_card
@@ -370,3 +371,54 @@ def test_the_ecgfounder_card_supports_no_inference_only_arm(registry_dir):
     card = load_card(registry_dir / "ecgfounder.json")
     assert "inference_only" not in card.training_modes_supported
     assert card.output["positive_index"] is None
+
+
+def test_full_finetune_with_mse_uses_identity_head(tmp_path):
+    """The fine-tuned head predicts values, not probabilities."""
+    import torch
+    from mival.modelcard import load_card
+
+    (tmp_path / "tinymod_mse.py").write_text(
+        "import torch\n"
+        "class Tiny(torch.nn.Module):\n"
+        "    def __init__(self, n_in, n_out):\n"
+        "        super().__init__(); self.dense = torch.nn.Linear(n_in, n_out)\n"
+        "    def forward(self, x):\n"
+        "        flat = x.flatten(1); return self.dense(flat), flat\n"
+    )
+    reference = torch.nn.Linear(4, 3)
+    torch.save({"dense.weight": reference.weight, "dense.bias": reference.bias}, tmp_path / "w.pt")
+    card_body = {
+        "model_id": "tiny", "Name": "tiny",
+        "x-mival": {
+            "adapter": "torch", "code_path": str(tmp_path), "weights_format": "state_dict",
+            "weights": [{"uri": str(tmp_path / "w.pt"), "sha256": "0" * 64, "role": "backbone"}],
+            "builder": {"module": "tinymod_mse:Tiny", "kwargs": {"n_in": 4, "n_out": 3}},
+            "input_contract": {"leads": ["I", "II"], "sampling_rate_hz": 2, "duration_s": 1, "unit": "mV",
+                               "scaling": "none", "layout": "lead_time", "dtype": "float32"},
+            "output": {"type": "logits", "n_outputs": 3, "positive_index": 0},
+            "runtime": {"returns": ["logits", "features"]},
+            "training_modes_supported": ["full_finetune"], "pretraining_corpora": [],
+        },
+    }
+    (tmp_path / "tiny.json").write_text(json.dumps(card_body))
+    card = load_card(tmp_path / "tiny.json")
+
+    rng = np.random.default_rng(0)
+    n = 120
+    x = rng.normal(0, 1, (n, 2, 2)).astype(np.float32)          # flattens to 4 features
+    y = 50.0 + 3.0 * x[:, 0, 0] - 2.0 * x[:, 1, 1] + rng.normal(0, 0.1, n)
+    store = {f"r{i}": x[i] for i in range(n)}
+    data = {
+        "tensor_paths": [f"r{i}" for i in range(100)], "y": y[:100],
+        "person_id": [f"p{i}" for i in range(100)], "fold": [0] * 100,
+        "label_column": "label_value", "objective": "mse",
+        "load_batch": lambda paths: np.stack([store[p] for p in paths]), "batch_size": 16,
+        "validation": {"tensor_paths": [f"r{i}" for i in range(100, n)], "y": y[100:],
+                       "person_id": [f"p{i}" for i in range(100, n)]},
+    }
+    adapter = get_adapter("torch")
+    fitted = adapter.fit(adapter.load(card), data, "full_finetune", {"epochs": 3, "seed": 0, "lr": 0.01})
+    assert fitted.head.link == "identity"
+    out = adapter.forward(fitted, x[:5])
+    assert out.shape == (5,) and np.all(out > 1.5)   # values near 50, not probabilities

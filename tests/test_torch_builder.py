@@ -133,3 +133,17 @@ def test_unknown_returns_name_is_rejected(tmp_path):
                       returns=["logits", "festures"])
     with pytest.raises(ValueError, match="'tiny'.*'festures'"):
         get_adapter("torch").load(card)
+
+
+def test_regression_card_forward_returns_the_value_column(tmp_path):
+    import torch
+    reference = torch.nn.Linear(4, 1)
+    torch.save({"dense.weight": reference.weight, "dense.bias": reference.bias}, tmp_path / "w.pt")
+    card = write_card(tmp_path, tmp_path / "w.pt", "state_dict",
+                      builder={"module": "tinymod:Tiny", "kwargs": {"n_in": 4, "n_out": 1, "with_features": False}},
+                      returns=["logits"])
+    card.output.update({"type": "regression", "n_outputs": 1, "value_index": 0, "positive_index": None})
+    adapter = get_adapter("torch")
+    out = adapter.forward(adapter.load(card), batch())
+    expected = reference(torch.ones(2, 4)).detach().numpy().ravel()
+    assert np.allclose(out, expected, atol=1e-5)

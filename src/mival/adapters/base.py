@@ -98,7 +98,10 @@ class Adapter:
         one fold's weights into the next fold's estimate.
         """
         payload = parse_fit_data(data)
-        hp = parse_hparams(hparams, mode, payload.train.n_pos, payload.train.n_neg)
+        # pos_weight='balanced' divides by n_pos, which is meaningless once
+        # labels are continuous; a regression fit never needs class counts.
+        counts = (payload.train.n_pos, payload.train.n_neg) if payload.objective == "bce" else (1, 1)
+        hp = parse_hparams(hparams, mode, *counts)
         if mode == "linear_probe":
             return self._fit_linear_probe(handle, payload, hp)
         return self._finetune(handle, payload, mode, hp)
@@ -147,6 +150,7 @@ class Adapter:
                 hp,
                 validation,
                 context=f"linear_probe[{name}]",
+                objective=data.objective,
             )
             record["feature_set"] = name
             heads.append(head)
@@ -160,6 +164,7 @@ class Adapter:
                 "n_validation": 0 if data.validation is None else len(data.validation),
                 "frozen": "all",
                 "feature_sets": names,
+                "objective": data.objective,
             }
         )
         if len(records) > 1:

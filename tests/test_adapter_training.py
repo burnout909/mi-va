@@ -22,6 +22,7 @@ from mival.adapters._training import (
     parse_fit_data,
     parse_hparams,
     sigmoid,
+    validation_score,
 )
 from mival.adapters.base import Adapter
 
@@ -511,3 +512,54 @@ def test_an_adapter_with_several_representations_must_implement_with_heads():
 
     with pytest.raises(NotImplementedError, match="with_heads"):
         Partial().fit(object(), make_data(), "linear_probe", {"epochs": 5})
+
+
+def make_regression_data(n=200, seed=0, n_validation=60, batch_size=16):
+    """y = 3*x0 - 2*x1 + 50 + noise, so a linear head must recover the coefficients."""
+    rng = np.random.default_rng(seed)
+    signal = rng.normal(0, 1, (n, 2))
+    y = 3.0 * signal[:, 0] - 2.0 * signal[:, 1] + 50.0 + rng.normal(0, 0.1, n)
+    store = {f"rec-{i}": signal[i] for i in range(n)}
+
+    def load_batch(paths):
+        return np.stack([np.repeat(store[p][:, None], 4, axis=1) for p in paths])
+
+    split = n - n_validation
+    return {
+        "tensor_paths": [f"rec-{i}" for i in range(split)], "y": y[:split],
+        "person_id": [f"p-{i}" for i in range(split)], "fold": [0] * split,
+        "label_column": "label_value", "objective": "mse",
+        "load_batch": load_batch, "batch_size": batch_size,
+        "validation": {"tensor_paths": [f"rec-{i}" for i in range(split, n)], "y": y[split:],
+                       "person_id": [f"p-{i}" for i in range(split, n)]},
+    }
+
+
+def test_mse_objective_accepts_continuous_labels():
+    data = parse_fit_data(make_regression_data())
+    assert data.objective == "mse"
+    assert data.train.y.dtype == np.float64
+
+
+def test_bce_objective_still_rejects_continuous_labels():
+    body = make_regression_data()
+    body["objective"] = "bce"
+    with pytest.raises(TrainingError, match="labels must be 0 or 1"):
+        parse_fit_data(body)
+
+
+def test_linear_probe_with_mse_recovers_the_coefficients():
+    adapter = FakeAdapter()
+    fitted = adapter.fit("handle", make_regression_data(), "linear_probe", {"epochs": 2000, "lr": 0.05, "patience": 200})
+    head = fitted["head"]
+    assert head.link == "identity"
+    x = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
+    predicted = head.predict(x)
+    assert np.allclose(predicted, [53.0, 48.0, 50.0], atol=0.5)
+    assert fitted["fit_record"]["objective"] == "mse"
+    assert fitted["fit_record"]["validation_metric"] == "mae"
+
+
+def test_validation_score_for_mse_is_negative_mae():
+    score = validation_score(np.array([1.0, 3.0]), np.array([2.0, 2.0]), "auroc", "t", objective="mse")
+    assert score.primary == -1.0

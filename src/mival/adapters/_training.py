@@ -231,6 +231,10 @@ class FitData:
     load_batch: Callable[[Sequence[str]], np.ndarray]
     batch_size: int
     label_column: str
+    #: ``"bce"`` (default) for a classification card, ``"mse"`` for a
+    #: regression card. Threaded through the head, the loss and early stopping
+    #: so a regression arm never accidentally scores as a probability.
+    objective: str = "bce"
 
 
 def parse_fit_data(data: Mapping[str, Any]) -> FitData:
@@ -249,10 +253,13 @@ def parse_fit_data(data: Mapping[str, Any]) -> FitData:
     if not callable(loader):
         raise TrainingError("fit data 'load_batch' must be callable")
     batch_size = _positive_int(data["batch_size"], "batch_size")
-    train = _split(data, "train")
+    objective = str(data.get("objective", "bce"))
+    if objective not in ("bce", "mse"):
+        raise TrainingError(f"objective must be 'bce' or 'mse', got {objective!r}")
+    train = _split(data, "train", objective)
     if not len(train):
         raise TrainingError("fit was given no training records")
-    if train.n_pos == 0 or train.n_neg == 0:
+    if objective == "bce" and (train.n_pos == 0 or train.n_neg == 0):
         raise TrainingError(
             f"the training records carry {train.n_pos} positive and {train.n_neg} "
             "negative labels; a single-class fit has no decision to learn. Check the "
@@ -261,7 +268,7 @@ def parse_fit_data(data: Mapping[str, Any]) -> FitData:
     body = data.get("validation")
     validation = None
     if body:
-        validation = _split(body, "validation")
+        validation = _split(body, "validation", objective)
         if not len(validation):
             validation = None
     return FitData(
@@ -270,26 +277,29 @@ def parse_fit_data(data: Mapping[str, Any]) -> FitData:
         load_batch=loader,
         batch_size=batch_size,
         label_column=str(data.get("label_column", "")),
+        objective=objective,
     )
 
 
-def _split(body: Mapping[str, Any], where: str) -> FitSplit:
+def _split(body: Mapping[str, Any], where: str, objective: str = "bce") -> FitSplit:
     paths = tuple(str(path) for path in body["tensor_paths"])
     labels = np.asarray(body["y"])
     if labels.ndim != 1 or labels.size != len(paths):
         raise TrainingError(
             f"{where}: y has shape {labels.shape} but there are {len(paths)} tensor paths"
         )
+    persons = tuple(str(value) for value in body.get("person_id", ()) or ())
+    if persons and len(persons) != len(paths):
+        raise TrainingError(
+            f"{where}: {len(persons)} person_ids for {len(paths)} tensor paths"
+        )
+    if objective == "mse":
+        return FitSplit(tensor_paths=paths, y=labels.astype(np.float64), person_id=persons)
     values = set(np.unique(labels).tolist()) if labels.size else set()
     if not values <= {0, 1}:
         raise TrainingError(
             f"{where}: labels must be 0 or 1, got {sorted(values)}; adapters fit a binary "
             "outcome (spec §4.4)"
-        )
-    persons = tuple(str(value) for value in body.get("person_id", ()) or ())
-    if persons and len(persons) != len(paths):
-        raise TrainingError(
-            f"{where}: {len(persons)} person_ids for {len(paths)} tensor paths"
         )
     return FitSplit(tensor_paths=paths, y=labels.astype(np.int64), person_id=persons)
 
@@ -372,9 +382,12 @@ class EarlyStopping:
 
 
 def validation_score(
-    probs: np.ndarray, labels: np.ndarray, metric: str, context: str
+    probs: np.ndarray, labels: np.ndarray, metric: str, context: str, objective: str = "bce"
 ) -> Score:
     """The early-stopping score, oriented so that higher is always better."""
+    if objective == "mse":
+        residual = np.asarray(probs, dtype=np.float64) - np.asarray(labels, dtype=np.float64)
+        return Score(primary=-float(np.abs(residual).mean()), tiebreak=-float((residual**2).mean()))
     loss = float(binary_cross_entropy(probs, labels))
     if metric == "loss":
         return Score(primary=-loss, tiebreak=0.0)
@@ -401,6 +414,12 @@ def binary_cross_entropy(
     return float((weights * losses).sum() / weights.sum())
 
 
+def mean_squared_error(pred: np.ndarray, labels: np.ndarray) -> float:
+    """Mean squared error, the regression loss ``fit_record["train_loss"]`` reports."""
+    diff = np.asarray(pred, dtype=np.float64) - np.asarray(labels, dtype=np.float64)
+    return float(np.mean(diff * diff))
+
+
 # ---------------------------------------------------------------------------
 # the linear head
 # ---------------------------------------------------------------------------
@@ -421,15 +440,19 @@ class LinearHead:
     bias: float
     mean: np.ndarray
     scale: np.ndarray
+    #: ``"logistic"`` for a probability head, ``"identity"`` for a regression
+    #: head that predicts the outcome's own value.
+    link: str = "logistic"
 
     @classmethod
-    def of(cls, weights: Any, bias: float) -> "LinearHead":
+    def of(cls, weights: Any, bias: float, link: str = "logistic") -> "LinearHead":
         w = np.asarray(weights, dtype=np.float64).ravel()
         return cls(
             weights=w,
             bias=float(bias),
             mean=np.zeros_like(w),
             scale=np.ones_like(w),
+            link=link,
         )
 
     def logits(self, features: np.ndarray) -> np.ndarray:
@@ -447,6 +470,10 @@ class LinearHead:
 
     def probabilities(self, features: np.ndarray) -> np.ndarray:
         return sigmoid(self.logits(features))
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        """Values for an identity head, probabilities for a logistic one."""
+        return self.logits(features) if self.link == "identity" else self.probabilities(features)
 
 
 def sigmoid(z: np.ndarray) -> np.ndarray:
@@ -466,8 +493,9 @@ def fit_linear_head(
     hp: FitHParams,
     validation: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     context: str = "linear_probe",
+    objective: str = "bce",
 ) -> Tuple[LinearHead, Dict[str, Any]]:
-    """Logistic regression on a frozen representation, by full-batch Adam.
+    """Logistic (``bce``) or linear (``mse``) regression on a frozen representation, by full-batch Adam.
 
     Full batch rather than mini-batch because the representation is already in
     memory and the objective is convex, so there is no reason to add gradient
@@ -498,12 +526,18 @@ def fit_linear_head(
     scale = np.where(scale > 0, scale, 1.0)
     Z = (X - mean) / scale
 
-    n_pos = float(y.sum())
-    prevalence = n_pos / y.size
     weights = np.zeros(Z.shape[1], dtype=np.float64)
-    bias = float(np.log(prevalence / (1.0 - prevalence))) if 0 < prevalence < 1 else 0.0
-
-    sample_weight = np.where(y == 1, hp.pos_weight, 1.0)
+    if objective == "mse":
+        # The bias starts at the training mean rather than at zero: epoch 0
+        # already predicts the base rate, so the first gradients carry signal
+        # about the features rather than about the outcome's mean.
+        bias = float(y.mean())
+        sample_weight = np.ones_like(y)
+    else:
+        n_pos = float(y.sum())
+        prevalence = n_pos / y.size
+        bias = float(np.log(prevalence / (1.0 - prevalence))) if 0 < prevalence < 1 else 0.0
+        sample_weight = np.where(y == 1, hp.pos_weight, 1.0)
     total_weight = sample_weight.sum()
 
     validation_features = None
@@ -525,7 +559,7 @@ def fit_linear_head(
 
     for epoch in range(1, hp.epochs + 1):
         epochs_run = epoch
-        p = sigmoid(Z @ weights + bias)
+        p = (Z @ weights + bias) if objective == "mse" else sigmoid(Z @ weights + bias)
         residual = sample_weight * (p - y)
         grad_w = Z.T @ residual / total_weight
         grad_b = float(residual.sum() / total_weight)
@@ -548,12 +582,14 @@ def fit_linear_head(
         if validation_features is None:
             best = (weights.copy(), bias)
             continue
-        head = LinearHead(weights=weights, bias=bias, mean=mean, scale=scale)
+        link = "identity" if objective == "mse" else "logistic"
+        head = LinearHead(weights=weights, bias=bias, mean=mean, scale=scale, link=link)
         score = validation_score(
-            head.probabilities(validation_features[0]),
+            head.predict(validation_features[0]),
             validation_features[1],
             hp.early_stopping_metric,
             context,
+            objective,
         )
         trace.append(
             {
@@ -567,19 +603,28 @@ def fit_linear_head(
         if stopper.should_stop:
             break
 
-    head = LinearHead(weights=best[0], bias=best[1], mean=mean, scale=scale)
+    link = "identity" if objective == "mse" else "logistic"
+    head = LinearHead(weights=best[0], bias=best[1], mean=mean, scale=scale, link=link)
+    train_loss = (
+        mean_squared_error(head.predict(X), y)
+        if objective == "mse"
+        else binary_cross_entropy(head.probabilities(X), y, hp.pos_weight)
+    )
     record = {
-        "head": "logistic",
+        "head": "linear" if objective == "mse" else "logistic",
+        "objective": objective,
         "optimizer": "adam",
         "n_train": int(y.size),
         "n_features": int(Z.shape[1]),
         "epochs_run": epochs_run,
         "best_epoch": stopper.best_epoch,
         "best_validation_score": stopper.best_primary,
-        "validation_metric": hp.early_stopping_metric if validation is not None else None,
-        "train_loss": binary_cross_entropy(
-            head.probabilities(X), y, hp.pos_weight
+        "validation_metric": (
+            ("mae" if objective == "mse" else hp.early_stopping_metric)
+            if validation is not None
+            else None
         ),
+        "train_loss": train_loss,
         "trace": trace,
     }
     return head, record
