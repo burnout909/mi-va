@@ -1,0 +1,61 @@
+{
+  "selectors": [
+    {
+      "candidates": 95,
+      "false_negative": 0,
+      "false_positive": 95,
+      "name": "heartwise_binary_errors",
+      "selected": 20,
+      "type": "error"
+    },
+    {
+      "candidates": 90,
+      "epsilon": 0.05,
+      "name": "heartwise_binary_boundary",
+      "selected": 20,
+      "type": "boundary",
+      "why": ""
+    },
+    {
+      "candidates": 118,
+      "false_negative": 1,
+      "false_positive": 117,
+      "name": "ecgfounder_probe_errors",
+      "selected": 21,
+      "type": "error"
+    },
+    {
+      "candidates": 76,
+      "epsilon": 0.05,
+      "name": "ecgfounder_probe_boundary",
+      "selected": 20,
+      "type": "boundary",
+      "why": ""
+    },
+    {
+      "candidates": 96,
+      "false_negative": 2,
+      "false_positive": 94,
+      "name": "xecg_probe_errors",
+      "selected": 22,
+      "type": "error"
+    },
+    {
+      "candidates": 66,
+      "epsilon": 0.05,
+      "name": "xecg_probe_boundary",
+      "selected": 20,
+      "type": "boundary",
+      "why": ""
+    }
+  ],
+  "verdicts": [
+    "label_error",
+    "stemi_mimic",
+    "reperfused",
+    "signal_quality",
+    "lead_misplacement",
+    "true_model_error",
+    "unclear"
+  ]
+}
