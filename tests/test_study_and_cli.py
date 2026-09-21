@@ -76,12 +76,14 @@ def test_json_specs_are_accepted(tmp_path):
 
 def test_cli_lists_only_runnable_stages(capsys):
     assert main(["stages"]) == 0
-    assert capsys.readouterr().out.split() == ["retrieve", "preprocess", "models", "evaluate", "misclassify"]
+    assert capsys.readouterr().out.split() == [
+        "retrieve", "profile", "preprocess", "models", "evaluate", "misclassify",
+    ]
 
 
-def test_cli_rejects_an_unbuilt_stage(capsys):
+def test_cli_rejects_an_unknown_stage_name(capsys):
     with pytest.raises(SystemExit):
-        main(["run", "profile", "--study", "x"])
+        main(["run", "not-a-stage", "--study", "x"])
 
 
 def test_cli_rejects_a_malformed_input_pair(tmp_path):

@@ -138,3 +138,7 @@ def check_contamination(
     return ContaminationReport(
         flag=bool(overlap), overlapping_corpora=tuple(overlap), checked=True
     )
+
+
+class EventCountError(RuntimeError):
+    """Spec §2.4 gate 2: too few events in the held-out split to report anything."""

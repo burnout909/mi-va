@@ -33,18 +33,17 @@ from .runkey import RunKey
 # doing nothing.
 _STAGES: Dict[str, str] = {
     "retrieve": "mival.stages.retrieve:RetrieveStage",
+    "profile": "mival.stages.profile:ProfileStage",
     "preprocess": "mival.stages.preprocess:PreprocessStage",
     "models": "mival.stages.models:ModelsStage",
     "evaluate": "mival.stages.evaluate:EvaluateStage",
     "misclassify": "mival.stages.misclassify:MisclassifyStage",
 }
 
-# Stage 2 of spec §3.3, kept here so that `mival stages` shows the real
-# pipeline rather than only the parts that happen to be built, and so a typo is
-# distinguishable from a stage that is deliberately not built yet.
-_UNBUILT: Dict[str, str] = {
-    "profile": "blocked on Data4Life installation and MI-CDM access (Plan 6)",
-}
+# Kept here (even though empty now) so that `mival stages` can keep
+# distinguishing a typo from a stage that is deliberately not built yet, the
+# moment a future stage needs it.
+_UNBUILT: Dict[str, str] = {}
 
 # Spec §3.3 pipeline order, including the parts not yet built.
 STAGE_ORDER = ("retrieve", "profile", "preprocess", "models", "evaluate", "misclassify")
