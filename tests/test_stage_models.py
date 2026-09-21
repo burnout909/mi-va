@@ -412,6 +412,14 @@ def test_inference_only_fits_nothing_and_records_the_weights_checksum(tmp_path):
     assert result.counts["out"] == len(ROWS)
 
 
+def test_the_train_log_carries_the_cards_runtime(tmp_path):
+    # A result is reproducible only against the interpreter and framework the
+    # card declares, so the log has to carry them.
+    _result, ctx, _adapter = simple_run(tmp_path, "inference_only")
+    card_block = train_log(ctx)[0]["model_card"]
+    assert card_block["runtime"] == {"framework": "fake", "python": "3.9", "device": "cpu"}
+
+
 def test_linear_probe_fits_and_records_the_feature_layer_and_head_hparams(tmp_path):
     _result, ctx, adapter = simple_run(
         tmp_path, "linear_probe", hparams={"lr": 0.01, "epochs": 3}

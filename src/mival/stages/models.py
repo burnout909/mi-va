@@ -846,6 +846,9 @@ class ModelsStage(Stage):
                 "adapter": card.adapter,
                 "feature_layer": card.feature_layer,
                 "ensemble": dict(card.ensemble),
+                # Which interpreter and framework build the card was written
+                # against; a result is only reproducible against that.
+                "runtime": dict(card.runtime),
             },
             "training": training,
             "thresholds": {name: fit.to_dict() for name, fit in thresholds.items()},
