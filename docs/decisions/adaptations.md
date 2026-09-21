@@ -190,6 +190,22 @@ compiled for []"로 죽었다. 테스트는 절대 경로만 써 왔기 때문�
 
 ---
 
+#### A-11 · L1 · evaluate 그림이 dev fold마다 곡선을 그렸다
+
+`roc_pr.png`, `calibration.png`, `decision_curve.png`, `regression_scatter.png`의
+시리즈를 run_key 단위로 모아서 fold 5개 × arm 3개 = 곡선 18개(산점도는 패널 18개)가
+한 그림에 들어갔다. 범례가 그래프를 덮어 읽을 수 없었다. STEMI 실행에서는 arm이
+적어 드러나지 않았다.
+
+고침(commit `5cc0979`): 곡선과 산점도는 **test split만** 모은다. arm 비교는 held-out
+데이터에서 하고, dev fold 예측은 `metrics_long`에만 남는다. 테스트는 그림 함수가
+받는 시리즈 라벨이 전부 `/test`로 끝나는지 본다.
+
+- 발견: 2026-09-22 샘플 evaluate 그림 검토
+- 상태: 고침
+
+---
+
 ## L2 보고 목록
 
 즉시 만들지 않고 여기 올린다. 한 건을 보고 지은 추상은 그 한 건에만 맞으므로,

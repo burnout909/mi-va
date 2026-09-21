@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MI-VAL LVEF 실행</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}html{-webkit-text-size-adjust:100%;height:100%}body{margin:0;height:100%}img,svg{display:block;max-width:100%}button{font:inherit;color:inherit}:focus-visible{outline:2px solid var(--ours);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<style>
+  :root {
+    --ground:#ffffff; --panel:#f4f6f7; --ink:#10171c; --ink-2:#4b5960; --ink-3:#85939b;
+    --rule:#d6dee1; --rule-2:#e9eef0;
+    --ours:#0b6b7f; --ours-bg:#e3f0f4;
+    --gap:#9c5410;  --gap-bg:#fbeedd;
+    --stop:#a3343a; --stop-bg:#fbe9ea;
+    --code-bg:#f0f3f5;
+    --sans: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0b1013; --panel:#161f24; --ink:#e6edf1; --ink-2:#9dadb6; --ink-3:#71838d;
+      --rule:#27343b; --rule-2:#1c262c; --ours:#54bcd8; --ours-bg:#0f313c;
+      --gap:#dda060; --gap-bg:#372516; --stop:#e08b90; --stop-bg:#3a1e20; --code-bg:#0e161a; }
+  }
+  :root[data-theme="dark"] {
+      --ground:#0b1013; --panel:#161f24; --ink:#e6edf1; --ink-2:#9dadb6; --ink-3:#71838d;
+      --rule:#27343b; --rule-2:#1c262c; --ours:#54bcd8; --ours-bg:#0f313c;
+      --gap:#dda060; --gap-bg:#372516; --stop:#e08b90; --stop-bg:#3a1e20; --code-bg:#0e161a; }
+  :root[data-theme="light"] {
+      --ground:#ffffff; --panel:#f4f6f7; --ink:#10171c; --ink-2:#4b5960; --ink-3:#85939b;
+      --rule:#d6dee1; --rule-2:#e9eef0; --ours:#0b6b7f; --ours-bg:#e3f0f4;
+      --gap:#9c5410; --gap-bg:#fbeedd; --stop:#a3343a; --stop-bg:#fbe9ea; --code-bg:#f0f3f5; }
+
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         word-break:keep-all; -webkit-font-smoothing:antialiased; }
+
+  .deck  { height:100vh; display:grid; place-items:center; overflow:hidden; }
+  .slide { display:none; width:min(1020px,92vw); max-height:88vh; overflow-y:auto; }
+  .slide.active { display:flex; flex-direction:column; gap:22px; }
+
+  .bar { position:fixed; left:0; right:0; bottom:0; height:3px; background:var(--rule-2); z-index:30; }
+  .bar > i { display:block; height:100%; background:var(--ours); transition:width .22s ease; }
+  .hud { position:fixed; right:18px; bottom:16px; z-index:31; display:flex; gap:14px; align-items:center;
+         font-family:var(--mono); font-size:12px; color:var(--ink-3); }
+  .hud button { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--rule);
+                border-radius:4px; padding:4px 9px; cursor:pointer; }
+  .hud button:hover { color:var(--ink); }
+  .hud .n { font-variant-numeric:tabular-nums; }
+
+  h1 { font-size:clamp(32px,4.6vw,50px); font-weight:700; line-height:1.24;
+       letter-spacing:-.03em; margin:0; text-wrap:balance; }
+  h2 { font-size:clamp(25px,3.2vw,35px); font-weight:700; line-height:1.3;
+       letter-spacing:-.026em; margin:0; text-wrap:balance; }
+
+  ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:11px; }
+  li { position:relative; padding-left:26px; font-size:clamp(15px,1.65vw,18.5px);
+       line-height:1.6; color:var(--ink-2); }
+  li::before { content:""; position:absolute; left:4px; top:.62em;
+               width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
+  li strong { color:var(--ink); font-weight:700; }
+  li em { font-style:normal; color:var(--ours); font-weight:700; }
+  li.key::before { background:var(--gap); }
+  li.key em { color:var(--gap); }
+  li code, p code, td code, .lede code, .box code { font-family:var(--mono); font-size:.88em;
+       background:var(--code-bg); border-radius:3px; padding:1px 5px; color:var(--ink); }
+
+  figure { margin:0; background:var(--panel); border:1px solid var(--rule);
+           border-radius:8px; padding:20px 18px; }
+  .scroll { overflow-x:auto; }
+  svg { display:block; max-width:100%; height:auto; margin:0 auto; }
+  .fig { padding:10px; }
+  .fig img { max-height:46vh; width:auto; margin:0 auto; object-fit:contain; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+  @media (max-width:820px) { .two { grid-template-columns:1fr; } }
+  figcaption { font-family:var(--mono); font-size:11px; color:var(--ink-3); margin-top:8px; text-align:center; }
+
+  p { margin:0; line-height:1.7; }
+  .lede { font-size:clamp(15px,1.6vw,18px); line-height:1.7; color:var(--ink-2); max-width:62ch; }
+  .lede strong { color:var(--ink); font-weight:700; }
+  .lede em { font-style:normal; color:var(--ours); font-weight:700; }
+  .meta { font-family:var(--mono); font-size:13px; color:var(--ink-3); line-height:2; }
+  .title { justify-content:center; align-items:center; text-align:center; }
+
+  table { border-collapse:collapse; width:100%; font-size:14.5px; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--ink-3);
+       letter-spacing:.06em; text-transform:uppercase; padding:0 14px 9px 0;
+       border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:9px 14px 9px 0; color:var(--ink-2); border-bottom:1px solid var(--rule-2);
+       line-height:1.55; vertical-align:top; }
+  td.k { font-family:var(--mono); color:var(--ink); white-space:nowrap; }
+  td.n { color:var(--ink); font-weight:700; }
+  td.r { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .ok  { color:var(--ours); font-weight:700; }
+  .no  { color:var(--stop); font-weight:700; }
+  .warn{ color:var(--gap); font-weight:700; }
+  small.ci { color:var(--ink-3); font-size:11.5px; font-family:var(--mono); }
+
+  .knobs { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
+  .knobs.five { grid-template-columns:repeat(5,1fr); }
+  .knobs.six { grid-template-columns:repeat(6,1fr); }
+  .knobs.three { grid-template-columns:repeat(3,1fr); }
+  @media (max-width:820px) { .knobs, .knobs.five, .knobs.six, .knobs.three { grid-template-columns:repeat(2,1fr); } }
+  .knob { font-family:var(--sans); font-size:15px; font-weight:700; color:var(--ink-2);
+          background:var(--ground); border:1.5px solid var(--rule); border-radius:6px;
+          padding:11px 6px; cursor:pointer; transition:all .15s ease; text-align:center; }
+  .knob:hover { border-color:var(--ink-3); color:var(--ink); }
+  .knob[aria-selected="true"] { background:var(--ours-bg); border-color:var(--ours);
+                                border-width:2.5px; color:var(--ink); }
+  .knob small { display:block; font-size:11px; font-weight:500; color:var(--ink-3);
+                margin-top:3px; letter-spacing:.02em; }
+  .knob[aria-selected="true"] small { color:var(--ours); }
+
+  .code { background:var(--code-bg); border:1px solid var(--rule); border-radius:6px;
+          padding:15px 17px; overflow-x:auto; }
+  .code pre { margin:0; font-family:var(--mono); font-size:13px; line-height:1.7; color:var(--ink); }
+  .code .c { color:var(--ink-3); }
+  .code .k { color:var(--ours); font-weight:600; }
+  .code .h { color:var(--gap); font-weight:700; }
+  .hint { font-family:var(--mono); font-size:11px; color:var(--ink-3);
+          letter-spacing:.08em; text-transform:uppercase; margin-bottom:9px; }
+
+  .box { background:var(--ground); border:1px solid var(--rule); border-radius:6px;
+         padding:17px 19px; min-height:150px; display:flex; flex-direction:column; gap:10px; }
+  .box .lead { font-size:18px; font-weight:700; color:var(--ink); line-height:1.45; }
+  .box .body { font-size:15px; color:var(--ink-2); line-height:1.65; }
+  .box .body b { color:var(--ink); font-weight:700; }
+  .box .body i { font-style:normal; color:var(--gap); font-weight:700; }
+  .box .out { font-family:var(--mono); font-size:13px; color:var(--ours);
+              background:var(--ours-bg); border-radius:5px; padding:7px 11px; align-self:flex-start; }
+  .box .ph { font-size:14px; color:var(--ink-3); }
+  .box table { font-size:13.5px; }
+
+  .cells { display:grid; grid-template-columns:200px repeat(2,1fr); gap:6px; align-items:stretch; }
+  @media (max-width:820px) { .cells { grid-template-columns:120px repeat(2,1fr); } }
+  .cells .hd { font-size:11.5px; font-weight:600; color:var(--ink-3); letter-spacing:.03em;
+               display:flex; align-items:flex-end; padding:0 0 6px 2px; line-height:1.3; }
+  .cells .rw { font-size:14px; font-weight:700; color:var(--ink); display:flex;
+               align-items:center; padding-right:6px; line-height:1.3; font-family:var(--mono); }
+  .cell { border:1.5px solid var(--rule); border-radius:6px; background:var(--ground);
+          padding:12px 6px; cursor:pointer; font-size:20px; font-weight:700;
+          transition:all .15s ease; }
+  .cell:hover { border-color:var(--ink-3); }
+  .cell[aria-selected="true"] { border-width:2.5px; border-color:var(--ours); background:var(--ours-bg); }
+  .cell.y { color:var(--ours); } .cell.n { color:var(--stop); } .cell.w { color:var(--gap); }
+
+  @media print {
+    .deck { height:auto; display:block; }
+    .slide { display:flex !important; flex-direction:column; gap:22px;
+             page-break-after:always; max-height:none; width:100%; padding:28px 0; }
+    .bar,.hud { display:none; }
+  }
+</style>
+
+<div class="bar"><i id="prog"></i></div>
+<div class="hud">
+  <button id="theme" type="button">THEME</button>
+  <span class="n"><span id="cur">1</span> / <span id="tot">15</span></span>
+</div>
+
+<div class="deck" id="deck">
+
+<!-- ═══════════════ 1 ═══════════════ -->
+<section class="slide title active">
+  <h1>MI-VAL<br>LVEF 과제 실행</h1>
+  <p class="meta">HeartWise LVEF ×2 &nbsp;·&nbsp; ECGFounder &nbsp;·&nbsp; xECG &nbsp;·&nbsp; MI-CDM (MIMIC-IV) &nbsp;·&nbsp; 2026-09-22</p>
+</section>
+
+<!-- ═══════════════ 2 ═══════════════ -->
+<section class="slide">
+  <h2>목적: 무엇을 위한 모듈인가</h2>
+  <p class="lede">병원 밖에서 만들어진 ECG 모델이 <strong>우리 환자</strong>에서 얼마나 맞는지는 돌려 보기 전에는 알 수 없습니다.
+     그런데 모델마다 입력 형식, 런타임, 출력이 달라서 <em>비교 가능한 조건으로 돌리는 것</em> 자체가 일입니다.</p>
+  <ul>
+    <li><strong>MI-VAL은 모델을 코드에 쓰지 않습니다.</strong> 모델은 카드(JSON) 하나, 연구 설계는 study(YAML) 하나로 선언하고, 6단계 파이프라인은 그 두 파일만 읽습니다.</li>
+    <li>모델을 하나 더 검증하는 것은 <em>카드 한 장을 registry에 넣는 것</em>이고, 연구 질문을 바꾸는 것은 <em>study 파일을 고치는 것</em>입니다. 코드가 바뀌었다면 그 자체가 기록할 결과입니다.</li>
+    <li class="key">목표는 <strong>모델 12개 × 기관 2개</strong>(MIMIC → 신촌). 이번은 LVEF 과제로 <em>4개 모델</em>을 6단계 끝까지 통과시킨 기록입니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 3 ═══════════════ -->
+<section class="slide">
+  <h2>구성: 6단계, 파일로만 이어진다</h2>
+
+  <figure class="scroll">
+    <svg viewBox="0 0 960 260" role="img" aria-label="ModelCard 와 study.yaml 이 6단계 파이프라인으로 들어가고, 각 단계가 산출물 파일을 낸다">
+      <g font-family="var(--sans)">
+        <rect x="8" y="16" width="188" height="52" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2.4"/>
+        <text x="102" y="40" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">ModelCard JSON ×4</text>
+        <text x="102" y="58" text-anchor="middle" font-size="12" fill="var(--ink-2)">모델이 무엇인가</text>
+
+        <rect x="8" y="86" width="188" height="52" rx="6" fill="var(--gap-bg)" stroke="var(--gap)" stroke-width="2.4"/>
+        <text x="102" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">studies/lvef/study.yaml</text>
+        <text x="102" y="128" text-anchor="middle" font-size="12" fill="var(--ink-2)">무엇을 물을 것인가</text>
+
+        <rect x="8" y="156" width="188" height="52" rx="6" fill="var(--ground)" stroke="var(--rule)" stroke-width="1.6"/>
+        <text x="102" y="180" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink-2)">MI-CDM + DICOM</text>
+        <text x="102" y="198" text-anchor="middle" font-size="12" fill="var(--ink-3)">데이터</text>
+
+        <line x1="200" y1="112" x2="238" y2="112" stroke="var(--ink-3)" stroke-width="1.6"/>
+
+        <g font-size="13" font-weight="700">
+          <rect x="244" y="88" width="104" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="296" y="117" text-anchor="middle" fill="var(--ink)">1 Retrieve</text>
+          <rect x="356" y="88" width="104" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="408" y="117" text-anchor="middle" fill="var(--ink)">2 Profile</text>
+          <rect x="468" y="88" width="112" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="524" y="117" text-anchor="middle" fill="var(--ink)">3 Preprocess</text>
+          <rect x="588" y="88" width="104" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="640" y="117" text-anchor="middle" fill="var(--ink)">4 Models</text>
+          <rect x="700" y="88" width="112" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="756" y="117" text-anchor="middle" fill="var(--ink)">5 Evaluate</text>
+          <rect x="820" y="88" width="132" height="48" rx="6" fill="var(--ours-bg)" stroke="var(--ours)" stroke-width="2"/>
+          <text x="886" y="117" text-anchor="middle" fill="var(--ink)">6 Misclassify</text>
+        </g>
+
+        <g font-size="10.5" font-family="var(--mono)" fill="var(--ink-3)">
+          <text x="296" y="164" text-anchor="middle">cohort_index</text>
+          <text x="296" y="179" text-anchor="middle">retrieve_summary</text>
+          <text x="408" y="164" text-anchor="middle">cohort_split</text>
+          <text x="408" y="179" text-anchor="middle">profile_summary</text>
+          <text x="524" y="164" text-anchor="middle">tensors/</text>
+          <text x="524" y="179" text-anchor="middle">preprocess_index</text>
+          <text x="524" y="194" text-anchor="middle">recipes.json</text>
+          <text x="640" y="164" text-anchor="middle">predictions/</text>
+          <text x="640" y="179" text-anchor="middle">train_log.jsonl</text>
+          <text x="640" y="194" text-anchor="middle">heads/</text>
+          <text x="756" y="164" text-anchor="middle">metrics_long</text>
+          <text x="756" y="179" text-anchor="middle">figures/</text>
+          <text x="886" y="164" text-anchor="middle">cases.parquet</text>
+          <text x="886" y="179" text-anchor="middle">review_template</text>
+        </g>
+        <g stroke="var(--rule)" stroke-width="1.2">
+          <line x1="296" y1="140" x2="296" y2="152"/><line x1="408" y1="140" x2="408" y2="152"/>
+          <line x1="524" y1="140" x2="524" y2="152"/><line x1="640" y1="140" x2="640" y2="152"/>
+          <line x1="756" y1="140" x2="756" y2="152"/><line x1="886" y1="140" x2="886" y2="152"/>
+        </g>
+        <text x="600" y="240" text-anchor="middle" font-size="12" fill="var(--ink-3)">각 실행은 runs/lvef/&lt;stage&gt;/&lt;config_hash&gt;/ 에 manifest(코드 커밋, 입력 체크섬)와 함께 남는다</text>
+      </g>
+    </svg>
+  </figure>
+
+  <ul>
+    <li>단계는 <strong>파일로만</strong> 이어집니다. 한 단계의 산출물 경로가 다음 단계의 <code>--input</code>이고, 그 파일의 체크섬이 다음 실행의 <code>config_hash</code>에 들어갑니다.</li>
+    <li class="key">test split은 <em>Models 단계에서 딱 한 번</em>만 열립니다. 임계값은 dev에서 refit하고, 5·6단계는 그 예측 파일을 자르기만 합니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 4 ═══════════════ -->
+<section class="slide">
+  <h2>이번 과제의 모델 4개</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th></th><th>heartwise-lvef-binary</th><th>heartwise-lvef-regression</th><th>ecgfounder</th><th>xecg</th></tr>
+      <tr><td class="k">종류</td><td>single-task, LVEF ≤ 40</td><td>single-task, LVEF %</td><td>foundation (Net1D)</td><td>foundation (xLSTM)</td></tr>
+      <tr><td class="k">runtime</td>
+          <td colspan="3">torch 2.13 / Py 3.10 · <code>envs/ecgfounder</code></td>
+          <td>torch 2.8 / Py 3.12 · <code>envs/xecg</code><br><span class="warn">sLSTM CUDA 확장 빌드 필요</span></td></tr>
+      <tr><td class="k">sampling_rate</td><td>250 Hz</td><td>250 Hz</td><td>500 Hz</td><td>100 Hz</td></tr>
+      <tr><td class="k">layout / gain</td><td>lead_time · <span class="warn">gain 208.33</span></td><td>lead_time · <span class="warn">gain 208.33</span></td><td>lead_time</td><td>time_lead</td></tr>
+      <tr><td class="k">scaling</td><td>none</td><td>none</td><td>global_zscore</td><td>none</td></tr>
+      <tr><td class="k">weights_format</td><td>jit (TorchScript)</td><td>checkpoint + builder</td><td>checkpoint + builder</td><td>safetensors + builder</td></tr>
+      <tr><td class="k">output</td><td>logits 1, positive_index 0</td><td>regression 1, unit %</td><td>logits 150, positive_index <span class="no">null</span></td><td>features만, head 없음</td></tr>
+      <tr><td class="k">feature_layer</td><td class="no">null</td><td class="no">null</td><td class="ok">backbone (1024)</td><td class="ok">pooled (1024)</td></tr>
+      <tr><td class="k">training_modes</td><td>inference_only</td><td>inference_only</td><td>linear_probe · partial · full</td><td>linear_probe · partial · full</td></tr>
+      <tr><td class="k">pretraining_corpora</td><td>mhi</td><td>mhi</td><td>harvard-emory-ecg</td><td>(MIMIC 미포함)</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li>12유도 10초는 넷이 같지만 <strong>표본율이 100·250·500 Hz로 셋</strong>이고, HeartWise는 저자 코드의 <code>1/0.0048</code> 이득을 <code>gain</code>으로 선언합니다. 이 차이는 전부 카드에 있고 코드에는 없습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 5 ═══════════════ -->
+<section class="slide">
+  <h2>코드: study.yaml 한 파일</h2>
+  <figure id="stfig">
+    <div class="hint">단계를 누르면 studies/lvef/study.yaml 의 그 블록이 나옵니다</div>
+    <div class="knobs six" id="stknobs">
+      <button class="knob" data-s="retrieve" aria-selected="true">retrieve<small>DB → 코호트</small></button>
+      <button class="knob" data-s="profile">profile<small>split</small></button>
+      <button class="knob" data-s="preprocess">preprocess<small>tensor</small></button>
+      <button class="knob" data-s="models">models<small>6 arm</small></button>
+      <button class="knob" data-s="evaluate">evaluate<small>지표</small></button>
+      <button class="knob" data-s="misclassify">misclassify<small>사례</small></button>
+    </div>
+    <div class="code" id="stcode" style="min-height:230px"></div>
+  </figure>
+</section>
+
+<!-- ═══════════════ 6 ═══════════════ -->
+<section class="slide">
+  <h2>코드: 모델 카드 한 장</h2>
+  <figure id="cdfig">
+    <div class="hint">모델을 누르면 registry/models/&lt;id&gt;.json 의 x-mival 발췌가 나옵니다</div>
+    <div class="knobs" id="cdknobs">
+      <button class="knob" data-c="hwb" aria-selected="true">heartwise-binary<small>jit</small></button>
+      <button class="knob" data-c="hwr">heartwise-regression<small>checkpoint</small></button>
+      <button class="knob" data-c="ecgf">ecgfounder<small>checkpoint</small></button>
+      <button class="knob" data-c="xecg">xecg<small>safetensors</small></button>
+    </div>
+    <div class="code" id="cdcode" style="min-height:210px"></div>
+    <div class="box" id="cdbox" style="margin-top:12px; min-height:90px"></div>
+  </figure>
+</section>
+
+<!-- ═══════════════ 7 ═══════════════ -->
+<section class="slide">
+  <h2>실제 실행 1: 데이터 소스와 Retrieve</h2>
+  <div class="two">
+    <figure class="scroll">
+      <table>
+        <tr><th>단계</th><th style="text-align:right">건수</th></tr>
+        <tr><td><code>cdm.image_occurrence</code> 전체</td><td class="r">1,011,623</td></tr>
+        <tr><td>ECG만 (<code>modality_concept_id 4145308</code>) <span class="warn">CXR 215,006 제외</span></td><td class="r">796,617</td></tr>
+        <tr><td>±7일 안에 LVEF 측정 있음</td><td class="r">182,960</td></tr>
+        <tr><td>LVEF &lt; 5% 제외 (<code>label_implausible</code>)</td><td class="r">−33</td></tr>
+        <tr><td class="n">코호트 ECG / 환자</td><td class="r n">182,927 / 44,179</td></tr>
+        <tr><td>LVEF ≤ 40 양성 (<code>label_primary</code>)</td><td class="r">44,056 (24.1%)</td></tr>
+        <tr><td>DICOM 파일 없음 (<code>file_missing</code>)</td><td class="r ok">0</td></tr>
+      </table>
+    </figure>
+    <ul>
+      <li><strong>ECG</strong>: MI-CDM(MIMIC-IV OMOP) <code>image_occurrence</code> → S3 DICOM 800,035파일 99 GB를 서버 <code>/scratch</code>에 캐시.</li>
+      <li><strong>LVEF 라벨</strong>: 협업자가 OMOP <code>measurement</code>로 적재한 147,431행(concept 3027172, LOINC 10230-1). ECG와 <code>person_id</code> + 날짜로만 연결.</li>
+      <li>같은 날(0일)과 다음 날(+1일)이 87,393건으로 가장 많고, 창 양끝(±7일)은 3천 건대.</li>
+      <li class="key">DB에 인덱스가 하나도 없어 <em>partial index 하나</em>를 만들고 나서야 20초에 돕니다. 이것도 실행 기록에 남겼습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════════ 8 ═══════════════ -->
+<section class="slide">
+  <h2>실제 실행 2: Profile과 1,000건 샘플</h2>
+  <div class="two">
+    <figure class="scroll">
+      <table>
+        <tr><th>split</th><th style="text-align:right">환자</th><th style="text-align:right">ECG</th><th style="text-align:right">양성 ECG</th></tr>
+        <tr><td class="k">dev (5-fold)</td><td class="r">35,343</td><td class="r">146,757</td><td class="r">35,383</td></tr>
+        <tr><td class="k">test</td><td class="r">8,836</td><td class="r">36,170</td><td class="r">8,673</td></tr>
+        <tr><td colspan="4" style="color:var(--ink-3)">사람 단위 split · <code>label_primary</code>로 층화 · gate <code>min_test_positives 100</code> 통과</td></tr>
+      </table>
+    </figure>
+    <figure class="scroll">
+      <table>
+        <tr><th>1,000건 샘플</th><th style="text-align:right">샘플</th><th style="text-align:right">전체</th></tr>
+        <tr><td>선택 기준</td><td class="r" colspan="2"><code>cohort_index</code> 앞 1,000행</td></tr>
+        <tr><td>환자</td><td class="r">272</td><td class="r">44,179</td></tr>
+        <tr><td>양성률</td><td class="r">19.6%</td><td class="r">24.1%</td></tr>
+        <tr><td>LVEF 중앙값</td><td class="r">55</td><td class="r">55</td></tr>
+        <tr><td>dev / test</td><td class="r">794 / 206</td><td class="r">146,757 / 36,170</td></tr>
+      </table>
+    </figure>
+  </div>
+  <ul>
+    <li class="key">샘플은 <strong><code>image_occurrence_id</code>가 가장 작은 1,000건</strong>입니다. 무작위도 층화도 아닙니다. 목적은 <em>6단계가 실제 데이터로 끝까지 도는가</em>였고, 뒤에 나오는 수치는 성능 추정치가 아닙니다.</li>
+    <li>split은 전체 코호트의 <code>cohort_split</code>을 그대로 조인했으므로 dev/test 누수는 없습니다.</li>
+    <li>전체 코호트 실행 추정(샘플 실측 기준): preprocess 26분(130 GB), models 3~4시간(xECG probe가 병목), evaluate 0.5~2시간. 이번에는 돌리지 않았습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 9 ═══════════════ -->
+<section class="slide">
+  <h2>실제 실행 3: Preprocess, recipe 4개</h2>
+  <figure class="scroll">
+    <table>
+      <tr><th>recipe</th><th>모델</th><th>resample</th><th>gain</th><th>normalize</th><th>tensor</th></tr>
+      <tr><td class="k">2d6a8aa97aa5</td><td>heartwise-binary, heartwise-regression <span class="ok">(공유)</span></td><td>500 → 250 Hz</td><td>×208.33</td><td>none</td><td>(12, 2500)</td></tr>
+      <tr><td class="k">84dfe265782c</td><td>ecgfounder</td><td>500 Hz 그대로</td><td>없음</td><td>global_zscore</td><td>(12, 5000)</td></tr>
+      <tr><td class="k">…</td><td>xecg</td><td>500 → 100 Hz</td><td>없음</td><td>none</td><td>(1000, 12)</td></tr>
+      <tr><td class="k">…</td><td>prophecg-stemi <span style="color:var(--ink-3)">(registry에 있어 함께 컴파일, arm 없음)</span></td><td>500 Hz</td><td>없음</td><td>none · 8유도만</td><td>(8, 5000)</td></tr>
+    </table>
+  </figure>
+  <ul>
+    <li>DICOM에서 MDC 코드로 유도를 맞춰 읽고(<code>loader: dicom</code>), 카드 계약대로 recipe를 컴파일합니다. 같은 계약이면 recipe를 공유하므로 모델 5개에 recipe 4개, 1,000건에서 <strong>제외 0건</strong>.</li>
+    <li class="key">perturbation은 <em>선언만 실행됩니다.</em> 표본율이 셋이라 공통 열화 격자를 못 잡아 기준선만 선언했고, 그마저도 지금 어느 stage도 격자를 돌리지 않습니다(grid json만 기록). 열화 곡선은 이번 결과에 없습니다. L2로 기록.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 10 ═══════════════ -->
+<section class="slide">
+  <h2>실제 실행 4: Models, 6 arm을 env 2개로</h2>
+  <figure id="armfig">
+    <div class="cells" id="armcells">
+      <div class="hd"></div>
+      <div class="hd">inference_only</div><div class="hd">linear_probe</div>
+
+      <div class="rw">heartwise-binary</div>
+      <button class="cell y" data-a="hwb-inf">✓ primary</button>
+      <button class="cell n" data-a="hwb-lin">✗</button>
+
+      <div class="rw">heartwise-regression</div>
+      <button class="cell y" data-a="hwr-inf">✓ value</button>
+      <button class="cell n" data-a="hwr-lin">✗</button>
+
+      <div class="rw">ecgfounder</div>
+      <button class="cell n" data-a="ecgf-inf">✗</button>
+      <button class="cell y" data-a="ecgf-lin">✓ primary · value</button>
+
+      <div class="rw">xecg</div>
+      <button class="cell n" data-a="xecg-inf">✗</button>
+      <button class="cell y" data-a="xecg-lin">✓ primary · value</button>
+    </div>
+    <div class="box" id="armbox" style="margin-top:14px"></div>
+  </figure>
+  <ul>
+    <li>study는 하나지만 카드의 <code>runtime.env</code>가 둘이라 <strong>models를 env마다 한 번씩</strong> 돌리고 manifest를 따로 남겼습니다(ecgfounder env 46초, xecg env 72초, 1,000건). 첫 실행에서 상대 경로 버그(A-10) 하나를 찾아 고쳤습니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 11 ═══════════════ -->
+<section class="slide">
+  <h2>결과 1: 분류 (LVEF ≤ 40, test 206건)</h2>
+  <div class="two">
+    <figure class="scroll">
+      <table>
+        <tr><th></th><th>heartwise</th><th>ecgfounder probe</th><th>xecg probe</th></tr>
+        <tr><td class="k">AUROC</td><td class="n">0.919<br><small class="ci">0.844–0.972</small></td><td>0.898<br><small class="ci">0.802–0.961</small></td><td>0.903<br><small class="ci">0.803–0.974</small></td></tr>
+        <tr><td class="k">AUPRC</td><td>0.734</td><td>0.720</td><td class="n">0.736</td></tr>
+        <tr><td class="k">sens / spec<br><small class="ci">@refit_sens95</small></td><td>1.000 / 0.399</td><td>0.979 / 0.259</td><td>0.958 / 0.405</td></tr>
+        <tr><td class="k">brier</td><td>0.120</td><td>0.110</td><td class="n">0.101</td></tr>
+        <tr><td class="k">calibration slope</td><td class="warn">2.12</td><td class="warn">1.68</td><td class="ok">1.06</td></tr>
+        <tr><td class="k">CITL</td><td>+0.06</td><td>−0.03</td><td>−0.06</td></tr>
+      </table>
+    </figure>
+    <figure class="fig">
+      <img src="figures/lvef-sample/roc_pr.png" alt="샘플 206건 ROC와 PR 곡선, 세 분류 arm">
+      <figcaption>figures/roc_pr.png · 신뢰구간은 환자 단위 bootstrap 2,000회</figcaption>
+    </figure>
+  </div>
+  <ul>
+    <li>단일과제 HeartWise와 foundation probe 둘의 AUROC는 신뢰구간이 겹칩니다. 206건으로는 순위를 말할 수 없고, <strong>세 arm이 같은 코호트·같은 split·같은 지표로 한 표에 나온다</strong>는 것이 이 슬라이드의 내용입니다.</li>
+    <li>기울기 2.1·1.7은 확률이 과소 분산됐다는 뜻입니다. HeartWise는 저자 코호트 단위 스펙트럼 정규화를 적용하지 않은 상태(L2-2)라 예상된 방향입니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 12 ═══════════════ -->
+<section class="slide">
+  <h2>결과 2: 회귀 (LVEF %, test 206건)</h2>
+  <div class="two">
+    <figure class="scroll">
+      <table>
+        <tr><th></th><th>heartwise</th><th>ecgfounder probe</th><th>xecg probe</th></tr>
+        <tr><td class="k">MAE</td><td class="n">7.77<br><small class="ci">5.83–10.22</small></td><td>10.97<br><small class="ci">8.85–13.63</small></td><td>8.92</td></tr>
+        <tr><td class="k">RMSE</td><td class="n">10.94</td><td>14.42</td><td>11.62</td></tr>
+        <tr><td class="k">R²</td><td class="n">0.470</td><td class="no">0.080</td><td>0.402</td></tr>
+        <tr><td class="k">AUROC@40<br><small class="ci">예측값을 40으로 잘라</small></td><td>0.912</td><td>0.894</td><td>0.885</td></tr>
+      </table>
+    </figure>
+    <figure class="fig">
+      <img src="figures/lvef-sample/regression_scatter.png" alt="샘플 206건 회귀 산점도, 세 회귀 arm">
+      <figcaption>figures/regression_scatter.png · x 실제 LVEF, y 예측</figcaption>
+    </figure>
+  </div>
+  <ul>
+    <li>회귀는 새 stage가 아니라 <code>label_def: value</code> 하나로 들어갑니다. 예측 파일의 <code>pred_value</code> 열, 지표 범주의 MAE·RMSE·R², 그리고 <code>regression_cuts: [40]</code>이 회귀 예측을 분류 지표로도 읽어 줍니다.</li>
+    <li class="key">ECGFounder probe는 <em>순서는 맞추는데(AUROC@40 0.89) 값은 못 맞춥니다(R² 0.08)</em>. 산점도에서 예측이 52 근처에 몰려 있습니다. 선형 head가 target 크기(LVEF 15~80)까지 못 올라간 것이라, 목표값 표준화(L1 후보)인지 lr 격자 문제인지 전체 실행 전에 봅니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 13 ═══════════════ -->
+<section class="slide">
+  <h2>실제 실행 6: Misclassification</h2>
+  <figure id="selfig">
+    <div class="hint">원칙: 모델별로 독립. selector는 한 모델의 예측만 가리키고, 두 모델을 교차하는 selector는 두지 않는다</div>
+    <div class="knobs three" id="selknobs">
+      <button class="knob" data-s="hwb" aria-selected="true">heartwise-binary<small>threshold 0.065</small></button>
+      <button class="knob" data-s="ecgf">ecgfounder probe<small>threshold 0.069</small></button>
+      <button class="knob" data-s="xecg">xecg probe<small>threshold 0.074</small></button>
+    </div>
+    <div class="two">
+      <div class="code" id="selcode" style="min-height:170px"></div>
+      <div class="box" id="selbox" style="min-height:170px"></div>
+    </div>
+  </figure>
+  <ul>
+    <li class="key">임계값이 <code>refit_sens95</code>(민감도 95% 보장)라 <strong>오분류는 거의 전부 FP</strong>입니다. FN은 세 모델 통틀어 3건이고 전부 LVEF 21인 같은 환자입니다. 리뷰 1순위.</li>
+    <li>회귀 arm은 확률이 없어 지금 selector 4종의 대상이 아닙니다. 회귀 잔차 상위를 보려면 <code>type: residual</code>이 필요합니다(L1 후보). verdict 어휘가 아직 STEMI용(<code>stemi_mimic</code>, <code>reperfused</code>)인 것도 study별로 열어야 합니다(L0).</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 14 ═══════════════ -->
+<section class="slide">
+  <h2>이번 실행에서 프레임워크가 배운 것</h2>
+  <figure id="ladfig">
+    <div class="hint">칸을 누르면 이번에 무엇이 그 수준이었는지 나옵니다</div>
+    <div class="knobs three" id="ladknobs">
+      <button class="knob" data-l="L0" aria-selected="true">L0<small>데이터로 표현</small></button>
+      <button class="knob" data-l="L1">L1<small>코드 수정</small></button>
+      <button class="knob" data-l="L2">L2<small>새 축, 보고만</small></button>
+    </div>
+    <div class="box" id="ladbox" style="min-height:190px"></div>
+  </figure>
+  <ul>
+    <li class="key">모델 4개를 넣는 데 카드 4장과 study 1개면 됐고(L0), 실데이터가 드러낸 버그 4건을 고쳤으며(L1, 각각 회귀 테스트), 코드로 풀지 않고 <em>보고만 한 것</em>이 4건입니다(L2). 이 비율이 프레임워크의 성적표입니다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 15 ═══════════════ -->
+<section class="slide">
+  <h2>다음</h2>
+  <ul>
+    <li><strong>전체 코호트 실행</strong>(182,927 ECG). 추정 5~7시간. 그 전에 linear probe의 feature 캐시(L1)를 넣으면 xECG가 3~4시간에서 15분 정도로 줍니다. 내부 CV 11번의 fit이 매번 backbone을 다시 돌리기 때문입니다.</li>
+    <li><strong>연구 결정 2건</strong>: <code>label_sens2</code>(±30일)가 지금 구조에서 <code>label_primary</code>와 항상 같아지는 문제(A-9), 그리고 perturbation 열화 격자를 카드별로 둘지(L2).</li>
+    <li><strong>misclassify 보강</strong>: 회귀 잔차 selector, study별 verdict 어휘, preprocess_index를 넘겨 파형 그림까지.</li>
+    <li class="key"><strong>신촌 전이</strong>: 같은 study.yaml, 같은 카드 4장, <code>site</code>만 바꿔서. MIMIC에서만 맞던 가정이 있으면 거기서 드러납니다.</li>
+  </ul>
+  <p class="meta">기록: docs/operations/lvef-first-run.md · docs/decisions/adaptations.md (A-7 ~ A-10, L2-5, L2-6) · docs/plans/2026-09-22-lvef-results-deck-plan.md</p>
+</section>
+
+</div>
+
+<script>
+/* ───────── study.yaml 블록 ───────── */
+var ST = {
+  retrieve:
+'<span class="k">retrieve</span>:\n  <span class="k">dsn_env</span>: /data/mi-val/secrets/micdm.env   <span class="c"># 접속 정보는 파일 경로만. 내용은 어디에도 기록되지 않는다</span>\n  <span class="k">schema</span>: cdm\n  <span class="k">label_concept_id</span>: 3027172             <span class="c"># LVEF (LOINC 10230-1)</span>\n  <span class="h">modality_concept_id</span>: 4145308          <span class="h"># ECG. image_occurrence 에 MIMIC-CXR 이 섞여 있어 필수</span>\n  <span class="k">window_days</span>: 7                        <span class="c"># ECG 기준 ±7일 최근접 LVEF</span>\n  <span class="k">window_days_sens2</span>: 30                 <span class="c"># 민감도 축 (A-9: 지금 구조에선 primary 와 같아짐)</span>\n  <span class="k">implausible_below</span>: 5                  <span class="c"># LVEF &lt; 5 는 label_implausible 로 제외</span>\n  <span class="k">primary_cutoff</span>: 40                    <span class="c"># label_primary = LVEF ≤ 40</span>\n  <span class="k">sens1_cutoff</span>: 50                      <span class="c"># label_sens1  = LVEF ≤ 50</span>\n  <span class="k">local_path_root</span>: /scratch/mi-val/dicom\n  <span class="k">require_local_file</span>: true              <span class="c"># 캐시에 없는 DICOM 은 file_missing 으로 제외</span>',
+  profile:
+'<span class="k">profile</span>:\n  <span class="k">test_fraction</span>: 0.2                    <span class="c"># 사람 단위. 한 환자의 ECG 는 전부 한쪽에</span>\n  <span class="k">n_folds</span>: 5                             <span class="c"># dev 안의 내부 CV fold. 임계값과 hparam 은 여기서만</span>\n  <span class="k">stratify_on</span>: label_primary\n  <span class="k">min_test_positives</span>: 100               <span class="c"># gate. 못 넘으면 실행이 실패한다 (이번 8,673)</span>',
+  preprocess:
+'<span class="k">preprocess</span>:\n  <span class="k">loader</span>: dicom                          <span class="c"># MDC 코드로 12유도 매핑. npz 도 가능</span>\n  <span class="k">registry</span>: registry/models              <span class="c"># 카드 폴더. 카드마다 recipe 를 컴파일한다</span>\n  <span class="k">allow_upsample</span>: false\n  <span class="k">pad_policy</span>: reject\n  <span class="k">perturbation</span>:\n    <span class="k">axes</span>:\n      <span class="h">resample</span>: [500]                     <span class="h"># 기준선만. 카드가 500/250/100 Hz 라 공통 열화 격자 불가</span>\n      <span class="h">duration</span>: [10]',
+  models:
+'<span class="k">models</span>:\n  <span class="k">registry</span>: registry/models\n  <span class="k">cohort_sources</span>: [mimic-iv-ecg]         <span class="c"># 카드의 pretraining_corpora 와 겹치면 오염 표시</span>\n  <span class="k">batch_size</span>: 64\n  <span class="k">arms</span>:\n    - {<span class="k">model_id</span>: heartwise-lvef-binary,     <span class="k">training_mode</span>: inference_only, <span class="k">label_def</span>: primary}\n    - {<span class="k">model_id</span>: heartwise-lvef-regression, <span class="k">training_mode</span>: inference_only, <span class="h">label_def: value</span>}\n    - {<span class="k">model_id</span>: ecgfounder, <span class="k">training_mode</span>: linear_probe, <span class="k">label_def</span>: primary, <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: ecgfounder, <span class="k">training_mode</span>: linear_probe, <span class="h">label_def: value</span>,   <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: xecg,       <span class="k">training_mode</span>: linear_probe, <span class="k">label_def</span>: primary, <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n    - {<span class="k">model_id</span>: xecg,       <span class="k">training_mode</span>: linear_probe, <span class="h">label_def: value</span>,   <span class="k">hparam_grid</span>: {<span class="k">lr</span>: [0.01, 0.001]}}\n<span class="c"># 회귀는 새 축이 아니다. label_def=value 인 arm 은 objective 가 mse, head 의 link 가 identity 가 된다</span>',
+  evaluate:
+'<span class="k">evaluate</span>:\n  <span class="k">outcomes</span>: {<span class="k">primary</span>: null}              <span class="c"># 예측 파일의 정답을 그대로</span>\n  <span class="h">regression_cuts</span>: [40]                  <span class="h"># 회귀 예측을 40 으로 잘라 분류 지표(auroc_below@40)로도 읽는다</span>\n  <span class="k">bootstrap_replicates</span>: 2000            <span class="c"># 환자 단위 재표본</span>\n  <span class="k">figures</span>: true                          <span class="c"># stard_flow, roc_pr, calibration, decision_curve, regression_scatter</span>\n<span class="c"># threshold_policy 기본 refit_sens95: dev 에서 민감도 ≥ 95% 중 특이도 최대</span>',
+  misclassify:
+'<span class="k">misclassify</span>:\n  <span class="k">selectors</span>:\n    - {<span class="k">name</span>: heartwise_binary_errors, <span class="k">type</span>: error, <span class="k">k</span>: 20,\n       <span class="k">pattern</span>: {<span class="k">model_id</span>: heartwise-lvef-binary, <span class="k">training_mode</span>: inference_only,\n                 <span class="k">label_def</span>: primary, <span class="k">perturbation_id</span>: baseline, <span class="h">split: test</span>}}\n    - {<span class="k">name</span>: heartwise_binary_boundary, <span class="k">type</span>: boundary, <span class="k">epsilon</span>: 0.05, <span class="k">k</span>: 20,\n       <span class="k">pattern</span>: {… 같은 pattern …}}\n    <span class="c"># ecgfounder_probe_*, xecg_probe_* : model_id 와 training_mode: linear_probe 만 다름</span>\n<span class="c"># pattern 은 한 모델만 가리킨다. a/b 의 model_id 가 다른 contrast 는 이 study 에 없다</span>'
+};
+var stcode = document.getElementById('stcode');
+var stknobs = [].slice.call(document.querySelectorAll('#stknobs .knob'));
+function stShow(k) {
+  stknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.s === k)); });
+  stcode.innerHTML = '<div class="hint">study.yaml · stages.' + k + '</div><pre>' + ST[k] + '</pre>';
+}
+if (stcode) {
+  stknobs.forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); stShow(b.dataset.s); }); });
+  stShow('retrieve');
+}
+
+/* ───────── 모델 카드 발췌 ───────── */
+var CD = {
+  hwb: ['registry/models/heartwise-lvef-binary.json',
+'<span class="k">"x-mival"</span>: {\n  <span class="k">"adapter"</span>: "torch",\n  <span class="h">"weights_format"</span>: "jit",                     <span class="h">// TorchScript. builder 불필요, 표현도 못 꺼냄</span>\n  <span class="k">"weights"</span>: [{"uri": ".../lvef_under_equal_40.pt", "sha256": "605cab…", "role": "full"}],\n  <span class="k">"input_contract"</span>: {"leads": [12유도], "sampling_rate_hz": 250, "duration_s": 10,\n                     "scaling": "none", <span class="h">"gain": 208.3333</span>, "layout": "lead_time"},\n  <span class="k">"output"</span>: {"type": "logits", "n_outputs": 1, "positive_index": 0},\n  <span class="k">"feature_layer"</span>: null,\n  <span class="k">"runtime"</span>: {"framework": "torch==2.13.0+cu130", "python": "3.10.20",\n              "env": "/data/mi-val/envs/ecgfounder", "returns": ["logits"]},\n  <span class="k">"training_modes_supported"</span>: ["inference_only"],\n  <span class="k">"pretraining_corpora"</span>: ["mhi"]\n}',
+    '이 카드를 위해 바뀐 코드', '<b>L1 2건.</b> <code>input_contract.gain</code> 키와 그것을 적용하는 <code>Gain</code> op(A-7 계열), 그리고 <code>weights_format: jit</code> 로더. 둘 다 이름에 모델이 없고, 다음 TorchScript 모델은 카드만 넣으면 된다.'],
+  hwr: ['registry/models/heartwise-lvef-regression.json',
+'<span class="k">"x-mival"</span>: {\n  <span class="k">"adapter"</span>: "torch",\n  <span class="k">"weights_format"</span>: "checkpoint", <span class="k">"state_dict_key"</span>: "state_dict",\n  <span class="h">"code_path"</span>: "/opt/deepecg-docker/notebooks",     <span class="h">// 저자 코드가 있는 곳</span>\n  <span class="h">"builder"</span>: {"module": "EfficientNetv2:EfficientNet1DV2",\n              "kwargs": {"num_classes": 1, "expansion_factors": [1,2,2,2,2,2,2]}},\n  <span class="k">"rename_keys"</span>: {"classifier.fc1.": "classifier.3."},  <span class="c">// 체크포인트와 코드의 이름 차이</span>\n  <span class="k">"input_contract"</span>: {…250 Hz, "gain": 208.3333…},\n  <span class="h">"output"</span>: {"type": "regression", "n_outputs": 1, "value_index": 0, "unit": "%"},\n  <span class="k">"training_modes_supported"</span>: ["inference_only"]\n}',
+    '이 카드를 위해 바뀐 코드', '<b>L1 3건.</b> <code>builder</code> 선언으로 모델 생성(A-4: ECGFounder 전용 하드코딩 제거), <code>output.type: regression</code> + <code>value_index</code>, 그리고 numpy dtype 이 든 체크포인트를 <code>weights_only</code> 로 여는 safe_globals. 저자 코드 수정은 0줄.'],
+  ecgf: ['registry/models/ecgfounder.json',
+'<span class="k">"x-mival"</span>: {\n  <span class="k">"adapter"</span>: "torch",\n  <span class="k">"weights_format"</span>: "checkpoint", <span class="k">"code_path"</span>: "/opt/ecgfounder",\n  <span class="k">"builder"</span>: {"module": "net1d:Net1D", "kwargs": {"in_channels": 12, "n_classes": 150, …}},\n  <span class="k">"input_contract"</span>: {…500 Hz, <span class="h">"scaling": "global_zscore"</span>…},\n  <span class="k">"output"</span>: {"type": "logits", "n_outputs": 150, <span class="h">"positive_index": null</span>},  <span class="c">// LVEF 출력이 없다</span>\n  <span class="h">"feature_layer"</span>: "backbone", <span class="k">"feature_width"</span>: 1024,\n  <span class="k">"runtime"</span>: {…, "returns": ["logits", "features"]},\n  <span class="k">"training_modes_supported"</span>: ["linear_probe", "partial_unfreeze", "full_finetune"],\n  <span class="k">"pretraining_corpora"</span>: ["harvard-emory-ecg"]\n}',
+    '이 카드로 할 수 있는 것', '<b>positive_index 가 null</b> 이므로 inference_only 는 카드가 거부한다. <code>feature_layer: backbone</code> 에서 1024-d 표현을 꺼내 NumPy head 를 붙이는 linear_probe 가 이번 arm. 분류(로지스틱)와 회귀(선형) head 를 같은 코드로.'],
+  xecg: ['registry/models/xecg.json',
+'<span class="k">"x-mival"</span>: {\n  <span class="k">"adapter"</span>: "torch",\n  <span class="h">"weights_format"</span>: "safetensors", <span class="k">"code_path"</span>: "/data/mi-val/models/xecg",\n  <span class="k">"builder"</span>: {"module": "xECG:xECG", "kwargs": {"cls_type": "avg", "config": {"embedding_size": 1024,\n              "patch_size": 25, "sampling_freq": 100, "xlstm_config": ["s","s","m","m","s","s","m","m","s"]}}},\n  <span class="k">"input_contract"</span>: {…<span class="h">"sampling_rate_hz": 100</span>, "scaling": "none", <span class="h">"layout": "time_lead"</span>…},\n  <span class="k">"output"</span>: {"type": "logits", "n_outputs": null, "positive_index": null},  <span class="c">// head 없음</span>\n  <span class="k">"feature_layer"</span>: "pooled", <span class="k">"feature_width"</span>: 1024,\n  <span class="k">"runtime"</span>: {"framework": "torch==2.8.0+cu128", "python": "3.12.13", "env": "/data/mi-val/envs/xecg",\n              <span class="h">"slstm_backend": "cuda"</span>, "returns": ["features", "ignore"],\n              "compile_env": {"CUDA_HOME": "/usr/local/cuda-12.8", "CC": "gcc-14", …}}\n}',
+    '이 카드가 드러낸 것', '<b>env 가 다른 두 번째 torch 모델.</b> 카드는 <code>runtime.env</code> 를 선언하지만 강제하는 코드가 없다(L2-5). 저자의 vanilla sLSTM 변환에 bias 순서 버그가 있어 <b>cuda backend 만</b> 쓴다(L2-4). 그래서 실행 스크립트가 빌드 env 변수 4개를 넘긴다.']
+};
+var cdcode = document.getElementById('cdcode'), cdbox = document.getElementById('cdbox');
+var cdknobs = [].slice.call(document.querySelectorAll('#cdknobs .knob'));
+function cdShow(k) {
+  cdknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.c === k)); });
+  var v = CD[k];
+  cdcode.innerHTML = '<div class="hint">' + v[0] + '</div><pre>' + v[1] + '</pre>';
+  cdbox.innerHTML = '<div class="lead">' + v[2] + '</div><div class="body">' + v[3] + '</div>';
+}
+if (cdcode) {
+  cdknobs.forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); cdShow(b.dataset.c); }); });
+  cdShow('hwb');
+}
+
+/* ───────── arm 행렬 ───────── */
+var ARM = {
+  "hwb-inf":  ["heartwise-binary · inference_only · primary",
+    "TorchScript 가 <b>logit 1개</b>를 내고 카드의 positive_index 0 으로 확률을 읽습니다. 학습은 없고, dev 예측으로 <b>refit_sens95 임계값</b>만 잡습니다(0.065). test 는 여기서 한 번 열립니다.",
+    "실행됨 · runs/lvef/models/ad943c170e91e09e"],
+  "hwb-lin":  ["heartwise-binary · linear_probe", "TorchScript 는 중간 표현을 노출하지 않아 <b>feature_layer 가 null</b> 입니다. 카드가 이 모드를 선언하지 않으므로 study 가 요청해도 load 시점에 거부됩니다.", "카드가 지원하지 않음"],
+  "hwr-inf":  ["heartwise-regression · inference_only · value",
+    "<b>output.type: regression</b> 이라 LVEF % 를 바로 냅니다. 임계값은 개념이 없어 refit 하지 않고, 예측은 <code>pred_value</code> 열로 갑니다. 저자 체크포인트 기록은 MAE 7.55 / R² 0.46 이고, 우리 샘플 206건은 MAE 7.77 / R² 0.47.",
+    "실행됨 · 같은 run"],
+  "hwr-lin":  ["heartwise-regression · linear_probe", "binary 와 같은 이유로 없습니다. 이 체크포인트는 builder 로 만들지만 카드가 feature_layer 를 선언하지 않았습니다.", "카드가 지원하지 않음"],
+  "ecgf-inf": ["ecgfounder · inference_only", "150개 출력 중 LVEF 가 없습니다(<b>positive_index null</b>). 카드가 그렇게 말하므로 코드에 모델 이름을 쓸 필요 없이 거부됩니다.", "카드가 지원하지 않음"],
+  "ecgf-lin": ["ecgfounder · linear_probe · primary + value",
+    "backbone 을 고정하고 1024-d 표현 위에 NumPy head 를 학습합니다. <b>5-fold 내부 CV 로 lr {0.01, 0.001} 을 고르고</b> dev 전체로 다시 맞춥니다. primary 는 로지스틱(bce), value 는 선형(mse)이고 코드는 <code>LinearHead.link</code> 하나만 다릅니다. fit 마다 backbone 을 다시 돌려 arm 당 11번 forward → 전체 실행에선 feature 캐시가 필요합니다.",
+    "실행됨 · 같은 run · head 는 heads/*.npz"],
+  "xecg-inf": ["xecg · inference_only", "head 가 아예 없는 표현 모델입니다(<b>n_outputs null</b>). inference_only 는 성립하지 않습니다.", "카드가 지원하지 않음"],
+  "xecg-lin": ["xecg · linear_probe · primary + value",
+    "ECGFounder 와 정확히 같은 경로, 다른 env. <code>feature_layer: pooled</code> 에서 1024-d 를 꺼냅니다. sLSTM CUDA 확장은 첫 로드에서 컴파일되고 이후 캐시를 씁니다(\"ninja: no work to do\"). 1,000건 2 arm 에 72초.",
+    "실행됨 · runs/lvef/models/76beb7a63c530c47"]
+};
+var armbox = document.getElementById('armbox');
+var cells = [].slice.call(document.querySelectorAll('.cell'));
+function armShow(k) {
+  cells.forEach(function (c) { c.setAttribute('aria-selected', String(c.dataset.a === k)); });
+  var v = ARM[k];
+  armbox.innerHTML = '<div class="lead">' + v[0] + '</div><div class="body">' + v[1] + '</div><div class="out">' + v[2] + '</div>';
+}
+if (armbox) {
+  armbox.innerHTML = '<div class="ph">칸을 누르면 그 arm 이 무엇을 했는지, 왜 없는지 나옵니다.</div>';
+  cells.forEach(function (c) { c.addEventListener('click', function (e) { e.stopPropagation(); armShow(c.dataset.a); }); });
+}
+
+/* ───────── misclassify ───────── */
+function selYaml(model, mode) {
+  return '<span class="k">selectors</span>:\n  - <span class="k">name</span>: ' + model.replace(/-/g,'_') + '_errors\n    <span class="k">type</span>: error\n    <span class="k">k</span>: 20\n    <span class="k">pattern</span>:\n      <span class="k">model_id</span>: ' + model + '\n      <span class="k">training_mode</span>: ' + mode + '\n      <span class="k">label_def</span>: primary\n      <span class="k">perturbation_id</span>: baseline\n      <span class="h">split: test</span>\n  - <span class="k">name</span>: …_boundary\n    <span class="k">type</span>: boundary\n    <span class="k">epsilon</span>: 0.05\n    <span class="k">k</span>: 20\n    <span class="k">pattern</span>: <span class="c">{ 같은 pattern }</span>';
+}
+function selTable(rows) {
+  var h = '<table><tr><th>selector</th><th>후보</th><th>선택</th><th>FP</th><th>FN</th><th>TN</th><th>오분류 LVEF</th></tr>';
+  rows.forEach(function (r) { h += '<tr><td class="k">' + r[0] + '</td><td class="r">' + r[1] + '</td><td class="r">' + r[2] + '</td><td class="r">' + r[3] + '</td><td class="r">' + r[4] + '</td><td class="r">' + r[5] + '</td><td>' + r[6] + '</td></tr>'; });
+  return h + '</table>';
+}
+var SEL = {
+  hwb: [selYaml('heartwise-lvef-binary', 'inference_only'),
+    selTable([['error', 95, 20, 20, 0, '', '중앙 55 (45–75), prob 0.22–0.60'], ['boundary ±0.05', 90, 20, 7, 0, 13, '중앙 60 (55–76)']]),
+    'FN 0. 놓친 양성이 없고 FP 만 있다. 확률 0.6 까지 올린 LVEF 75 가 리뷰 대상'],
+  ecgf: [selYaml('ecgfounder', 'linear_probe'),
+    selTable([['error', 118, 21, 20, 1, '', 'FP 중앙 50 (45–75) · <b>FN LVEF 21</b>, prob 0.052'], ['boundary ±0.05', 76, 20, 11, 0, 9, '중앙 55 (45–65)']]),
+    'FN 1 건: LVEF 21 을 임계값 0.069 아래 0.052 로. 특이도 0.26 이라 boundary 후보도 가장 많다'],
+  xecg: [selYaml('xecg', 'linear_probe'),
+    selTable([['error', 96, 22, 20, 2, '', 'FP 중앙 50 (45–75), prob 최대 <b>0.955</b> · <b>FN LVEF 21</b> ×2'], ['boundary ±0.05', 66, 20, 7, 1, 12, '중앙 60 (50–79)']]),
+    'FN 2 건 모두 LVEF 21(prob 0.011, 0.063). 정상 LVEF 를 0.95 로 확신한 FP 가 있어 attribution 이 필요한 모델']
+};
+var selcode = document.getElementById('selcode'), selbox = document.getElementById('selbox');
+var selknobs = [].slice.call(document.querySelectorAll('#selknobs .knob'));
+function selShow(k) {
+  selknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.s === k)); });
+  var v = SEL[k];
+  selcode.innerHTML = '<div class="hint">study.yaml · misclassify</div><pre>' + v[0] + '</pre>';
+  selbox.innerHTML = '<div class="body">' + v[1] + '</div><div class="out">' + v[2] + '</div>';
+}
+if (selcode) {
+  selknobs.forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); selShow(b.dataset.s); }); });
+  selShow('hwb');
+}
+
+/* ───────── 수정 사다리 ───────── */
+var LAD = {
+  L0: ["L0 · 데이터로 표현. 코드 0줄",
+    "카드 4장(<code>registry/models/</code>), study 1개(<code>studies/lvef/</code>). 표본율·gain·layout·weights 형식·env·feature_layer·출력 종류가 전부 카드 값이고, 라벨 정의·창·cutoff·arm·selector 가 전부 study 값입니다. <b>모델을 바꿔도, 질문을 바꿔도 코드는 그대로.</b>",
+    "registry/models/*.json · studies/lvef/study.yaml"],
+  L1: ["L1 · 코드 수정 + 회귀 테스트",
+    "<b>A-7</b> psycopg 가 numeric 을 Decimal 로 줘서 quantile 이 죽음 → float64 변환. <b>A-8</b> CDM 에 CXR 이 섞여 있음 → modality 필터(값은 study 에). <b>A-10</b> preprocess 의 상대 tensor_path 를 models 가 작업 디렉터리 기준으로 읽음 → run 디렉터리 기준으로. <b>safe_globals</b> numpy dtype 이 든 체크포인트. 그 외 계획된 L1: builder/weights_format, gain, 회귀(label_def=value), DICOM loader.",
+    "각각 테스트 1개 이상 · 커밋 메시지에 이유"],
+  L2: ["L2 · 새 축. 코드로 풀지 않고 보고",
+    "<b>L2-5</b> 카드의 runtime.env 를 강제하는 것이 없다 → models 를 env 별로 두 번. <b>L2-6</b> code_path 가 한 프로세스에 누적. <b>perturbation</b> 격자가 study 전체 공통이라 표본율이 다른 카드를 함께 못 재고, 어느 stage 도 격자를 실행하지 않는다. <b>CLI --input</b> 이 파일만 받아 models 출력 디렉터리를 못 넘긴다(예측을 합친 parquet 로 우회). <b>A-9</b> label_sens2 가 구조적으로 primary 와 같다 → 연구 결정.",
+    "docs/decisions/adaptations.md"]
+};
+var ladbox = document.getElementById('ladbox');
+var ladknobs = [].slice.call(document.querySelectorAll('#ladknobs .knob'));
+function ladShow(k) {
+  ladknobs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.l === k)); });
+  var v = LAD[k];
+  ladbox.innerHTML = '<div class="lead">' + v[0] + '</div><div class="body">' + v[1] + '</div><div class="out">' + v[2] + '</div>';
+}
+if (ladbox) {
+  ladknobs.forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); ladShow(b.dataset.l); }); });
+  ladShow('L0');
+}
+
+/* ───────── 덱 ───────── */
+var slides = [].slice.call(document.querySelectorAll('.slide'));
+var i = 0, tot = slides.length;
+document.getElementById('tot').textContent = tot;
+function show(n) {
+  i = Math.max(0, Math.min(tot - 1, n));
+  slides.forEach(function (s, k) { s.classList.toggle('active', k === i); });
+  document.getElementById('cur').textContent = i + 1;
+  document.getElementById('prog').style.width = ((i + 1) / tot * 100) + '%';
+  history.replaceState(null, '', '#' + (i + 1));
+  slides[i].scrollTop = 0;
+}
+document.addEventListener('keydown', function (e) {
+  if (e.target.closest && e.target.closest('.knob, .cell, a') && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+  else if (e.key === 'Home') show(0); else if (e.key === 'End') show(tot - 1);
+});
+document.getElementById('deck').addEventListener('click', function (e) {
+  if (e.target.closest('button, a, #armfig, #stfig, #cdfig, #selfig, #ladfig')) return;
+  show(i + (e.clientX > window.innerWidth / 2 ? 1 : -1));
+});
+document.getElementById('theme').addEventListener('click', function (e) {
+  e.stopPropagation();
+  var r = document.documentElement;
+  var d = matchMedia('(prefers-color-scheme: dark)').matches;
+  var c = r.getAttribute('data-theme') || (d ? 'dark' : 'light');
+  r.setAttribute('data-theme', c === 'dark' ? 'light' : 'dark');
+});
+var st = parseInt((location.hash || '#1').slice(1), 10);
+show(isNaN(st) ? 0 : st - 1);
+</script>
+
+</body>
+</html>
