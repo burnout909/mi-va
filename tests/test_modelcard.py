@@ -151,3 +151,22 @@ def test_every_registry_card_loads(registry_dir):
 
     cards = load_registry(registry_dir)
     assert {"ecgfounder", "prophecg-stemi", "xecg", "heartwise-lvef-binary", "heartwise-lvef-regression"} <= set(cards)
+
+
+def test_lvef_study_perturbation_axes_pass_every_registry_card(registry_dir):
+    """studies/lvef declares baseline-only resample/duration axes because the
+    study's cards span 500/250/100 Hz; every card must clear the check with
+    warnings only, never a GridContractError (see study.yaml's comment)."""
+    from mival.perturbation import GridContractError, check_grid_against_contract
+    from mival.pipeline.study import load_study
+
+    study_path = Path(__file__).resolve().parents[1] / "studies" / "lvef"
+    study = load_study(study_path)
+    axes = study.stage_spec("preprocess")["perturbation"]["axes"]
+
+    cards = load_registry(registry_dir)
+    for card in cards.values():
+        try:
+            check_grid_against_contract(axes, card.input_contract, card.model_id)
+        except GridContractError as exc:
+            pytest.fail(f"{card.model_id}: {exc}")

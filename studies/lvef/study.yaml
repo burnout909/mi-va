@@ -26,6 +26,20 @@ stages:
     registry: registry/models
     allow_upsample: false
     pad_policy: reject
+    # perturbation.axes is study-wide: one grid degrades every card in
+    # `registry` (see check_grid_against_contract in perturbation.py), but
+    # this study's four cards run at 500, 250 and 100 Hz, all at 10 s. No
+    # single set of degrading resample/duration levels stays below every
+    # card's own contract rate/duration, so a baseline-only level is used for
+    # both axes instead: the checker treats a level equal to the axis's own
+    # baseline as the identity (it only warns when the baseline is set above
+    # a card's contract, never when it matches). lead_dropout and
+    # amplitude_scale are unaffected by rate/duration and keep their
+    # framework defaults.
+    perturbation:
+      axes:
+        resample: [500]
+        duration: [10]
 
   models:
     registry: registry/models
