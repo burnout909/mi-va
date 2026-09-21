@@ -17,6 +17,7 @@ COHORT_INDEX = "cohort_index.parquet"
 SUMMARY = "retrieve_summary.json"
 SQL_DIR = "sql"
 SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_label.sql"
+SNAPSHOT_SQL_FILE = Path(__file__).with_name("sql") / "label_snapshot.sql"
 
 COHORT_INDEX_COLUMNS = (
     "image_occurrence_id", "person_id", "local_path", "index_datetime",
@@ -87,8 +88,12 @@ class RetrieveStage(Stage):
         query = self._query or (lambda sql, params: query_postgres(sql, params, spec.dsn_env))
         sql = SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
 
+        snapshot_sql = SNAPSHOT_SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
+        snapshot_params = {"label_concept_id": spec.label_concept_id}
+
         narrow = query(sql, spec.params(spec.window_days))
         wide = query(sql, spec.params(spec.window_days_sens2))
+        snapshot = read_snapshot(query(snapshot_sql, snapshot_params))
         if narrow["label_value"].notna().sum() == 0:
             raise ValueError(
                 f"no label within {spec.window_days} days for any ECG; check retrieve.label_concept_id"
@@ -103,8 +108,10 @@ class RetrieveStage(Stage):
         kept = attach_labels(kept, spec)
         index_path = write_table(kept[list(COHORT_INDEX_COLUMNS)].to_dict("records"),
                                  ctx.layout.artifact(COHORT_INDEX), COHORT_INDEX_COLUMNS)
-        sql_paths = [write_sql(ctx, sql, spec.params(days), days) for days in (spec.window_days, spec.window_days_sens2)]
-        summary_path = write_summary(ctx, frame, kept)
+        sql_paths = [write_sql(ctx, sql, spec.params(days), f"window_{days}")
+                     for days in (spec.window_days, spec.window_days_sens2)]
+        sql_paths.append(write_sql(ctx, snapshot_sql, snapshot_params, "label_snapshot"))
+        summary_path = write_summary(ctx, frame, kept, snapshot)
         return StageResult(outputs=[index_path, summary_path, *sql_paths],
                            counts={"in": len(frame), "out": len(kept)})
 
@@ -148,19 +155,40 @@ def attach_labels(frame, spec: RetrieveSpec):
     )
 
 
-def write_sql(ctx: StageContext, sql: str, params: Mapping[str, Any], days: int) -> Path:
+def read_snapshot(frame) -> dict:
+    """The label table's row count and highest measurement_id when this run read it."""
+    if len(frame) != 1:
+        raise ValueError(
+            f"the label snapshot query returned {len(frame)} rows; it aggregates and "
+            "must return exactly one"
+        )
+    row = frame.iloc[0]
+    # Postgres returns count as bigint and max(measurement_id) as whatever the
+    # column is, which psycopg may hand back as Decimal; JSON wants neither.
+    return {
+        "label_rows": _as_int(row["n_rows"]),
+        "max_measurement_id": _as_int(row["max_measurement_id"]),
+    }
+
+
+def _as_int(value: Any) -> Optional[int]:
+    return None if value is None or value != value else int(value)
+
+
+def write_sql(ctx: StageContext, sql: str, params: Mapping[str, Any], name: str) -> Path:
     filled = sql
     for key, value in params.items():
         filled = filled.replace(f"%({key})s", str(value))
-    path = ctx.layout.artifact(SQL_DIR, f"window_{days}.sql")
+    path = ctx.layout.artifact(SQL_DIR, f"{name}.sql")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(filled, encoding="utf-8")
     return path
 
 
-def write_summary(ctx: StageContext, frame, kept) -> Path:
+def write_summary(ctx: StageContext, frame, kept, snapshot: Mapping[str, Any]) -> Path:
     quantiles = kept["label_value"].quantile([0.05, 0.25, 0.5, 0.75, 0.95])
     payload = {
+        "snapshot": dict(snapshot),
         "n_ecg": int(len(frame)),
         "n_labelled": int(frame["label_value"].notna().sum()),
         "n_out": int(len(kept)),

@@ -1,6 +1,7 @@
 """Retrieve stage (spec §4.1) against an injected query, so no database is needed."""
 
 import decimal
+import json
 from datetime import date, datetime
 
 import pandas as pd
@@ -36,12 +37,18 @@ def row(image_id, person, day, value, delta, path=None):
     }
 
 
-def fake_query(rows_by_window):
-    """Return the frame for the window the SQL was run with."""
+SNAPSHOT = {"n_rows": 1234, "max_measurement_id": 99}
+
+
+def fake_query(rows_by_window, snapshot=None):
+    """Return the frame for the window the SQL was run with, or the snapshot frame."""
     calls = []
+    snapshot = SNAPSHOT if snapshot is None else snapshot
 
     def query(sql, params):
         calls.append((sql, dict(params)))
+        if "window_days" not in params:
+            return pd.DataFrame([snapshot])
         return pd.DataFrame(rows_by_window[params["window_days"]])
 
     query.calls = calls
@@ -127,6 +134,24 @@ def test_sql_is_copied_and_summary_written(tmp_path):
     assert (ctx.layout.artifact("sql", "window_7.sql")).is_file()
     summary = ctx.layout.artifact(SUMMARY)
     assert summary.is_file() and '"n_out": 1' in summary.read_text()
+
+
+def test_the_summary_carries_the_label_table_snapshot(tmp_path):
+    # Spec §4.1: a cohort is reproducible only against the snapshot it read.
+    rows = [row(1, 10, 1, 30.0, 0)]
+    query = fake_query({7: rows, 30: rows}, snapshot={
+        "n_rows": decimal.Decimal("4321"), "max_measurement_id": decimal.Decimal("777")})
+    ctx, _ = run(tmp_path, query)
+
+    snapshot_sql, snapshot_params = query.calls[2]
+    assert "cdm.measurement" in snapshot_sql and "window_days" not in snapshot_params
+    assert snapshot_params == {"label_concept_id": 3027172}
+
+    payload = json.loads(ctx.layout.artifact(SUMMARY).read_text())
+    assert payload["snapshot"] == {"label_rows": 4321, "max_measurement_id": 777}
+    assert isinstance(payload["snapshot"]["label_rows"], int)
+    copied = ctx.layout.artifact("sql", "label_snapshot.sql")
+    assert copied.is_file() and "3027172" in copied.read_text()
 
 
 def test_stage_is_registered():
