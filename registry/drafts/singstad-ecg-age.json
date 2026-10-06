@@ -1,0 +1,27 @@
+{
+  "model_id": "singstad-ecg-age",
+  "Name": "Singstad ECG-age (Inception, both genders)",
+  "Summary": "12-lead Inception network regressing age in years.",
+  "Link": "https://github.com/Bsingstad/ECG-age",
+  "Descriptors": {"Version": null, "References": ["doi:10.1101/2022.10.03.22280640"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 100 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 100, "duration_s": 10, "unit": "uV", "filters": [],
+      "scaling": "none", "layout": "time_lead", "dtype": "int32"
+    },
+    "output": {"type": "regression", "n_outputs": 1, "unit": "years"},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cpu", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["physionet-challenge-2021"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (model_weights/model_weights_inception_both genders.h5), keras version, code_commit. No license file on the 12-lead repo. Reference code feeds raw digital units (~uV) and pad_sequences casts to int32; dtype int32 records that cast. Workshop paper (NLDL 2022), medRxiv version cited."
+  }
+}
