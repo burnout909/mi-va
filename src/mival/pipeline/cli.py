@@ -29,8 +29,8 @@ def _parse_inputs(pairs: Sequence[str]) -> Dict[str, Path]:
         if not sep or not name:
             raise SystemExit(f"--input must be given as name=path, got {pair!r}")
         path = Path(value)
-        if not path.is_file():
-            raise SystemExit(f"--input {name}: {path} is not a file")
+        if not (path.is_file() or path.is_dir()):
+            raise SystemExit(f"--input {name}: {path} is not a file or directory")
         inputs[name] = path
     return inputs
 

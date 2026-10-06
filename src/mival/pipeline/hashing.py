@@ -32,6 +32,23 @@ def sha256_file(path: Union[str, Path]) -> str:
     return digest.hexdigest()
 
 
+def sha256_path(path: Union[str, Path]) -> str:
+    """A file's SHA-256, or a directory's: the hash of every file's relative path and SHA-256.
+
+    A stage output that is a directory of files (the models stage's
+    predictions) can then be passed as one input and still enter config_hash
+    by content.
+    """
+    path = Path(path)
+    if not path.is_dir():
+        return sha256_file(path)
+    digest = hashlib.sha256()
+    for child in sorted(p for p in path.rglob("*") if p.is_file()):
+        digest.update(child.relative_to(path).as_posix().encode("utf-8") + b"\0")
+        digest.update(sha256_file(child).encode("ascii") + b"\n")
+    return digest.hexdigest()
+
+
 def canonical_json(obj: object) -> str:
     """Serialize deterministically.
 

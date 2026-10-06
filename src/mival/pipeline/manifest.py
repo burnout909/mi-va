@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from mival import __version__
 
-from .hashing import sha256_file
+from .hashing import sha256_file, sha256_path
 
 SCHEMA_VERSION = 1
 
@@ -49,7 +49,7 @@ class ArtifactRef:
         """
         resolved = Path(path)
         recorded = str(resolved.relative_to(root)) if root is not None else str(resolved)
-        return cls(path=recorded, sha256=sha256_file(resolved))
+        return cls(path=recorded, sha256=sha256_path(resolved))
 
 
 def _git(args: List[str], cwd: Union[str, Path]) -> Optional[str]:

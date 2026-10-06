@@ -162,7 +162,7 @@ def prepare(
     seed: Optional[int] = None,
 ) -> StageContext:
     """Build the context: hash the config, resolve paths, arm the ledger."""
-    from .hashing import sha256_file
+    from .hashing import sha256_path
 
     resolved = dict(inputs)
     for name, path in stage.config_inputs(spec).items():
@@ -173,7 +173,7 @@ def prepare(
             )
         resolved[name] = Path(path)
 
-    checksums = {name: sha256_file(path) for name, path in sorted(resolved.items())}
+    checksums = {name: sha256_path(path) for name, path in sorted(resolved.items())}
     digest = config_hash(spec, checksums)
     layout = run_layout(study_id, stage.name, digest, runs_root)
     return StageContext(
