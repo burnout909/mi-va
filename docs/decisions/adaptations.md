@@ -204,6 +204,43 @@ compiled for []"로 죽었다. 테스트는 절대 경로만 써 왔기 때문�
 - 발견: 2026-09-22 샘플 evaluate 그림 검토
 - 상태: 고침
 
+#### A-12 · L0 · Lima와 cavalab 카드의 입력 배율
+
+초안 카드는 CODE 데이터의 단위를 1e-4 V로 보고 gain 10을 넣었다. MIMIC 샘플 300건에서
+Lima는 gain 10일 때 MAE 14.3년·bias −11.9년, gain 1일 때 MAE 9.5년·r 0.81이었다. 두 카드를
+mV(gain 1)로 고쳤다(같은 CODE 계열인 cavalab은 사건 34건이라 C-index 0.82 vs 0.79로 구분
+안 됨, Lima 근거를 따름).
+
+- 발견: 2026-10-07 ecg-age 샘플 실행
+- 상태: 고침(카드 값)
+
+#### A-13 · L1 · 회귀 arm이 `label_value`만 있는지 검사했다
+
+models는 회귀 arm이 있으면 `label_value`가 채워졌는지만 봤다. 간격 arm(`label_qrs` 등)은
+`label_value`가 없는 코호트에서 "라벨 없음"으로 실패했다. arm마다 자기 라벨 열을 보도록
+고쳤다.
+
+- 발견: 2026-10-07 delineation 샘플 실행
+- 상태: 고침
+
+#### A-14 · L1 · CLI `--input`이 디렉터리를 받지 않았다
+
+models 출력(예측 디렉터리)을 evaluate에 넘기려고 parquet를 손으로 합쳤다(2026-09-22 L1
+후보). 디렉터리 입력을 받고, 파일들의 상대 경로와 sha256으로 checksum을 낸다.
+
+- 발견: 2026-09-22 LVEF 샘플
+- 상태: 고침(2026-10-07)
+
+#### A-15 · L1 · 측정값 라벨 쿼리가 index 범위 검색을 못 했다
+
+`abs(측정일 − ECG일) <= window`만으로는 (person_id, measurement_date) index를 범위로 쓰지
+못해, 칼륨처럼 사람당 기록이 많은 concept에서 첫 쿼리가 20분 넘게 걸렸다. 같은 창을
+`between`으로도 적어 범위 검색이 되게 했다. 결과는 같다. 별도로, 재현성 snapshot
+쿼리(concept 전체 건수와 최대 id)는 measurement 전체를 읽어 study마다 약 15분 걸린다.
+
+- 발견: 2026-10-07 potassium 샘플 실행
+- 상태: 라벨 쿼리 고침. snapshot은 그대로
+
 ---
 
 ## L2 보고 목록
@@ -243,6 +280,8 @@ HeartWise 파이프라인의 첫 전처리는 **배치 전체**의 평균 스펙
 - 발견: 2026-09-21
 - 상태: **보고됨. 만들지 않음**
 - 추가 근거 (2026-10-06): kardionet-k-12lead (대상 코호트 통계로 lead별 z-score)
+- 2026-10-07 임시 조치 적용: kardionet-k-12lead의 lead별 평균·SD를 MIMIC 1,000건(사람당 1건)에서 한 번 계산해 wrapper buffer로 고정(`registry/wrappers/mival_wrap_potassium.py`). 코호트 단위 정규화 자체는 여전히 만들지 않음
+
 
 ### L2-3 · waveform 외 tabular 입력
 
@@ -255,6 +294,8 @@ EchoNext-Mini는 waveform과 함께 연령·성별·기계 계측 5종을 받는
 - 상태: **보고됨. 만들지 않음**. EchoNext-Mini를 4개 모델에 포함할지가 이 항목의
   착수 조건이다.
 - 추가 근거 (2026-10-06): echonext-mini (7개), cavalab-mtlr-code15 (나이·성별)
+- 2026-10-07 **만듦(최소형)**: 카드 `covariates` → retrieve가 `cov_age_years`, `cov_sex_male`을 쓰고 models가 ECG 다음 인자로 넘김. cavalab-mtlr-code15가 사용. EchoNext의 기계 계측 5종은 아직 없음
+
 
 ### L2-4 · 백엔드가 수치를 바꾸는 모델
 
@@ -313,6 +354,8 @@ head가 여럿이라 어느 head를 쓸지도 적을 자리가 없다. inference
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: survival 또는 segmentation task를 실행하기로 할 때
+- 2026-10-07 **만듦**: `output.type`에 `risk_score`, `survival_curve`, `mtlr`, `segmentation_mask` 추가, 디코딩은 `mival/decode/outputs.py` 한 곳(torch·keras 공용). keras는 `output.head`로 여러 head 중 하나를 고름. 예측 형식은 ECG당 한 행 유지(분할은 간격 arm 셋)
+
 
 ### L2-8 · 출력을 라벨 척도로 바꾸는 후처리
 
@@ -325,6 +368,8 @@ head가 여럿이라 어느 head를 쓸지도 적을 자리가 없다. inference
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: regression task(칼륨, NT-proBNP) 또는 survival task를 실행하기로 할 때
+- 2026-10-07 **만듦**: `output.transform`(`affine`, `exp`), 생존곡선 → 기준 시점 위험(`survival_curve`, `mtlr`). baseline hazard 없는 DeepSurv는 판별 지표만 냄
+
 
 ### L2-9 · 입력 준비 단계의 표현 범위
 
@@ -341,6 +386,8 @@ median 빼기, wavelet denoising, `dtype: int32` (기록만 되고 적용 안 �
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: 해당 모델을 실행 대상으로 정할 때. crop·pad anchor는 Lima, cavalab을 넣을 때 먼저 필요
+- 2026-10-07 **일부 만듦**: `crop_anchor`/`pad_anchor`(Pad center 포함), keras `frame_samples`(창 분할·이어 붙이기)와 창별 z-score. lead fan-out은 만들지 않고 lead II 하나로 대체. 나머지(z-score 뒤 ×0.1, rank 정규화, 중앙값 빼기, wavelet, elliptic 필터, int32)는 모델별 wrapper(`registry/wrappers/`)
+
 
 ### L2-10 · 라벨이 측정값 하나를 cutoff 둘로 자른 것뿐
 
@@ -354,6 +401,8 @@ retrieve는 ECG 근처의 측정 concept 하나를 읽어 `value <= primary_cuto
 - 발견: 2026-10-06, task별 study 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: LVEF 외 task를 실행하기로 할 때. 기본값 문제는 그 전에라도 LVEF L1 수정 범위에서 검토
+- 2026-10-07 **만듦**: `retrieve.label_source.kind` = `age_at_ecg`, `death_within`, `machine_measurement`, 그리고 `one_per_person`. 새 kind에서는 LVEF cutoff 열을 비움. `between` 범위 조건으로 기존 쿼리도 index 범위 검색
+
 
 ### L2-11 · 평가가 이진·회귀 둘뿐
 
@@ -367,6 +416,8 @@ Bland-Altman)가 없다. 회귀 arm은 `regression_cuts`가 비어 있으면 거
 - 발견: 2026-10-06, task별 study 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: 나이 회귀, survival, segmentation 중 하나를 실행하기로 할 때
+- 2026-10-07 **만듦**: 평가 범주 `survival`(Harrell C, 기준 시점 AUROC), 회귀에 Bland-Altman(bias, limits of agreement), `regression_cuts`의 label_def별 매핑
+
 
 ### L2-12 · keras 3·ONNX 형식
 
@@ -378,6 +429,8 @@ ECG2AF, ECG2HF, HeartKit은 keras 3 `.keras` 파일이고 OpenECG는 ONNX(batch 
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: 해당 모델을 실행 대상으로 정할 때 (OpenECG는 `.pt`도 있어 torch로 갈 수 있는지 먼저 확인)
+- 2026-10-07 **만듦**: keras 3 env(`/data/mi-val/envs/keras3`, TF 2.19.1 + keras 3.10, GPU). OpenECG는 ONNX 대신 torch checkpoint로 감
+
 
 ### L2-13 · study가 registry 디렉터리 하나를 통째로 쓴다
 
@@ -389,6 +442,8 @@ ECG2AF, ECG2HF, HeartKit은 keras 3 `.keras` 파일이고 OpenECG는 ONNX(batch 
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: heartwise-lvef-under50을 LVEF 전체 실행에 넣을지 정할 때
+- 2026-10-07 우회: study마다 registry 디렉터리를 따로 둠(`registry/age`, `potassium`, `ntprobnp`, `survival`, `segmentation`). 구조 변경은 하지 않음
+
 
 ### L2-14 · torch 앙상블이 첫 member만 쓴다
 
@@ -400,3 +455,4 @@ ECG2AF, ECG2HF, HeartKit은 keras 3 `.keras` 파일이고 OpenECG는 ONNX(batch 
 - 발견: 2026-10-06, task별 카드 초안 작성 중
 - 상태: **보고됨. 만들지 않음**
 - 착수 조건: torch 앙상블 모델을 실행 대상으로 정할 때
+- 2026-10-07 **만듦**: torch adapter가 `ensemble.method: mean`이면 weight마다 module을 만들어 출력을 평균. vonbachmann-k, ai-ntprobnp가 사용
