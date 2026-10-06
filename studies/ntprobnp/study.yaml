@@ -6,10 +6,15 @@ stages:
   retrieve:
     dsn_env: /data/mi-val/secrets/micdm.env
     schema: cdm
-    label_concept_id: 3029187  # NT-proBNP in Serum or Plasma (LOINC 33762-6), pg/mL
     modality_concept_id: 4145308
+    # MI-CDM holds NT-proBNP (concept 3029187, itemid 50963) with value_as_number
+    # empty: the ETL copied MIMIC's redacted text value ('___') and not valuenum.
+    # The label comes from MIMIC-IV 3.1 hosp/labevents itemid 50963 instead
+    # (subject_id -> person_id via person_source_value); see docs/operations.
+    label_source:
+      kind: measurement_file
+      path: /data/mi-val/datasets/mimic-iv/ntprobnp_labels.csv
     window_days: 1
-    window_days_sens2: 7
     implausible_below: 0
     local_path_root: /scratch/mi-val/dicom
     require_local_file: true
