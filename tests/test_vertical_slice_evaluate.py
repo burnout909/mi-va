@@ -133,3 +133,13 @@ def test_harrell_c_counts_same_time_censoring_as_outliving_the_event():
     risk = np.array([0.9, 0.1, 0.5, 0.0])
     # events at 3 vs censored at 3 (risk .5) and censored at 5 (risk 0); event-event ties excluded
     assert harrell_c(time, event, risk) == pytest.approx(3 / 4)
+
+
+def test_rank_auroc_matches_the_discrimination_auroc():
+    from mival.metrics.discrimination import auroc
+    from mival.metrics.survival import rank_auroc
+
+    rng = np.random.default_rng(4)
+    y = rng.integers(0, 2, 500)
+    s = np.round(rng.random(500), 2)  # ties on purpose
+    assert rank_auroc(y, s) == pytest.approx(auroc(y, s))

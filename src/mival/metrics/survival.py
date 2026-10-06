@@ -54,10 +54,25 @@ def harrell_c(time: Sequence, event: Sequence, risk: Sequence) -> float:
     return float((concordant + 0.5 * tied) / comparable) if comparable else float("nan")
 
 
+def rank_auroc(labels: Sequence, score: Sequence) -> float:
+    """Mann-Whitney AUROC with average ranks for ties; any real-valued score.
+
+    Same number as the probability-based AUROC, without the per-call overhead
+    that dominates a 2,000-replicate bootstrap over a whole cohort.
+    """
+    from scipy.stats import rankdata
+
+    labels = np.asarray(labels) > 0
+    n_pos = int(labels.sum())
+    n_neg = labels.size - n_pos
+    if n_pos == 0 or n_neg == 0:
+        return float("nan")
+    ranks = rankdata(np.asarray(score, dtype=np.float64))
+    return float((ranks[labels].sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
+
+
 def auroc_at_horizon(time: Sequence, event: Sequence, risk: Sequence, horizon: float) -> float:
     """AUROC of the score for an event by ``horizon``; records censored earlier are left out."""
-    from .discrimination import auroc
-
     time = np.asarray(time, dtype=np.float64)
     event = np.asarray(event, dtype=np.float64) > 0
     risk = np.asarray(risk, dtype=np.float64)
@@ -66,10 +81,7 @@ def auroc_at_horizon(time: Sequence, event: Sequence, risk: Sequence, horizon: f
     keep = case | control
     if case[keep].all() or not case[keep].any():
         return float("nan")
-    score = risk[keep]
-    span = float(score.max() - score.min())
-    scaled = np.full(score.shape, 0.5) if span == 0.0 else (score - score.min()) / span
-    return float(auroc(case[keep].astype(int), scaled))
+    return rank_auroc(case[keep].astype(int), risk[keep])
 
 
 def survival_metrics(time: Sequence, event: Sequence, risk: Sequence, horizons: Sequence[float]) -> Dict[str, float]:
