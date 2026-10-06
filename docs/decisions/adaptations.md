@@ -242,6 +242,7 @@ HeartWise 파이프라인의 첫 전처리는 **배치 전체**의 평균 스펙
   MIMIC 코호트에 의존한다는 것을 카드에 적어야 한다.
 - 발견: 2026-09-21
 - 상태: **보고됨. 만들지 않음**
+- 추가 근거 (2026-10-06): kardionet-k-12lead (대상 코호트 통계로 lead별 z-score)
 
 ### L2-3 · waveform 외 tabular 입력
 
@@ -253,6 +254,7 @@ EchoNext-Mini는 waveform과 함께 연령·성별·기계 계측 5종을 받는
 - 발견: 2026-09-21
 - 상태: **보고됨. 만들지 않음**. EchoNext-Mini를 4개 모델에 포함할지가 이 항목의
   착수 조건이다.
+- 추가 근거 (2026-10-06): echonext-mini (7개), cavalab-mtlr-code15 (나이·성별)
 
 ### L2-4 · 백엔드가 수치를 바꾸는 모델
 
@@ -295,3 +297,104 @@ LVEF study가 `code_path` 루트를 셋 갖고 있어서 드러났다.
 
 - 발견: 2026-09-21
 - 상태: **보고됨. 적재 시점 검출만 있음**
+
+### L2-7 · 출력이 레코드당 값 하나뿐
+
+`output.type`은 softmax, logits, sigmoid, regression 넷이고 모두 ECG 한 건에 점수 하나를
+낸다 (`src/mival/adapters/torch_adapter.py:325-334`). 생존 모델은 구간 조건부 생존확률 곡선,
+Cox log-risk, MTLR logit을 내고, 분할 모델은 샘플별 마스크를 낸다. ml4h 세 모델과 OpenECG는
+head가 여럿이라 어느 head를 쓸지도 적을 자리가 없다. inference_only는 회귀가 아니면 분류로
+가므로 (`src/mival/stages/models.py:771`) 생존·분할 arm이 갈 곳이 없다.
+
+- 근거: ml4h-ecg2af, ml4h-ecg2hf, ml4h-ecg2stroke, cavalab-deepsurv-code15, cavalab-mtlr-code15,
+  openecg-codec-v6, hrnetv2-delineation, semisegecg-resnet18, semisegecg-vit-tiny, heartkit-seg-tcn,
+  `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: survival 또는 segmentation task를 실행하기로 할 때
+
+### L2-8 · 출력을 라벨 척도로 바꾸는 후처리
+
+모델 출력과 라벨이 같은 척도라는 전제가 있다. von Bachmann은 z-score된 칼륨을 내고 학습 평균·SD가
+배포되지 않았다. AI-NT-proBNP는 log 값을 낸다. 생존곡선은 기준 시점(1·5·10년) 위험 하나로 줄이는
+규칙이 필요하고, cavalab DeepSurv는 baseline hazard가 없어 절대 위험을 낼 수 없다.
+
+- 근거: vonbachmann-k, ai-ntprobnp, ml4h 3개, cavalab 2개, `studies/drafts/ntprobnp`,
+  `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: regression task(칼륨, NT-proBNP) 또는 survival task를 실행하기로 할 때
+
+### L2-9 · 입력 준비 단계의 표현 범위
+
+compiler는 단위 → 필터 → resample → lead → 길이 → gain → 정규화 순서로 고정이다
+(`src/mival/compiler.py`). 초안에서 표현되지 않은 것: lead를 하나씩 넣는 모델(12-lead 한 건을
+single lead 12건으로), 4-D 입력 (B,1,T,L), 2.56 s 창으로 나눠 이어 붙이기, crop·pad 위치
+(compiler가 anchor를 넘기지 않아 항상 앞에서 자르고 끝에 붙임, `compiler.py:109`, `:117`),
+z-score 뒤 ×0.1 (gain이 정규화 전이라 사라짐, `compiler.py:121-125`), rank 정규화, z-score 뒤
+median 빼기, wavelet denoising, `dtype: int32` (기록만 되고 적용 안 됨).
+
+- 근거: echonext-mini, lima-ecg-age, singstad-ecg-age, kardionet-k-12lead, vonbachmann-k,
+  ai-ntprobnp, cavalab 2개, 분할 5개, `studies/drafts/delineation`, `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: 해당 모델을 실행 대상으로 정할 때. crop·pad anchor는 Lima, cavalab을 넣을 때 먼저 필요
+
+### L2-10 · 라벨이 측정값 하나를 cutoff 둘로 자른 것뿐
+
+retrieve는 ECG 근처의 측정 concept 하나를 읽어 `value <= primary_cutoff`, `value < sens1_cutoff`
+두 열을 만든다 (`src/mival/stages/retrieve.py:43`, `:150`). 생년으로 계산한 나이, 사망까지의
+시간과 censoring, 같은 ECG의 기계 측정 PR/QRS/QT는 이 형태가 아니다. 세 번째 cutoff(≤45), 높은
+값이 양성인 방향(칼륨), 하루 미만 창도 없다. `label_concept_id`를 비우면 LVEF concept
+3027172가 기본값으로 조용히 쓰인다 (`retrieve.py:59`).
+
+- 근거: `studies/drafts/` 6개 전부, echonext-mini, `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 study 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: LVEF 외 task를 실행하기로 할 때. 기본값 문제는 그 전에라도 LVEF L1 수정 범위에서 검토
+
+### L2-11 · 평가가 이진·회귀 둘뿐
+
+evaluate는 이진 지표와 회귀 지표만 있다. 생존(C-index, 기준 시점 AUC·Brier)과 간격 오차(MAE,
+Bland-Altman)가 없다. 회귀 arm은 `regression_cuts`가 비어 있으면 거부되고
+(`src/mival/stages/evaluate.py:391`), 생략하면 LVEF용 기본값 40을 조용히 쓴다 (`evaluate.py:388`).
+나이처럼 자연스러운 cut이 없는 회귀는 막힌다.
+
+- 근거: `studies/drafts/ecg-age`, `studies/drafts/mortality`, `studies/drafts/delineation`,
+  `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 study 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: 나이 회귀, survival, segmentation 중 하나를 실행하기로 할 때
+
+### L2-12 · keras 3·ONNX 형식
+
+adapter는 torch와 keras 둘이고 (`src/mival/adapters/__init__.py:9`), keras env는 2.7이다.
+ECG2AF, ECG2HF, HeartKit은 keras 3 `.keras` 파일이고 OpenECG는 ONNX(batch 1 고정)다.
+
+- 근거: ml4h-ecg2af, ml4h-ecg2hf, heartkit-seg-tcn, openecg-codec-v6,
+  `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: 해당 모델을 실행 대상으로 정할 때 (OpenECG는 `.pt`도 있어 torch로 갈 수 있는지 먼저 확인)
+
+### L2-13 · study가 registry 디렉터리 하나를 통째로 쓴다
+
+`models.registry`와 `preprocess.registry`는 디렉터리 하나를 받고, preprocess는 그 안의 모든 카드를
+컴파일한다 (`src/mival/stages/preprocess.py:250`). 기존 카드와 새 카드를 한 study에 섞으려면 같은
+디렉터리에 둬야 하고, 그러면 다른 study의 레시피와 `config_hash`가 바뀐다.
+
+- 근거: `studies/drafts/lvef` (arm 4개가 `registry/drafts`에 없음), `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: heartwise-lvef-under50을 LVEF 전체 실행에 넣을지 정할 때
+
+### L2-14 · torch 앙상블이 첫 member만 쓴다
+
+카드의 `ensemble`은 keras adapter만 읽는다. torch adapter는 `weights[0]`만 로드하므로
+(`src/mival/adapters/torch_adapter.py:122`) 5-fold 카드는 경고 없이 첫 fold 하나로 실행된다.
+방법 이름 `mean_probability`는 회귀 출력 평균에도 그대로 쓰인다.
+
+- 근거: vonbachmann-k, ai-ntprobnp, `docs/model-search/schema-gaps.md`
+- 발견: 2026-10-06, task별 카드 초안 작성 중
+- 상태: **보고됨. 만들지 않음**
+- 착수 조건: torch 앙상블 모델을 실행 대상으로 정할 때
