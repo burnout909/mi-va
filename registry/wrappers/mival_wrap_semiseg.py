@@ -18,11 +18,14 @@ class SemiSegEncoderDecoder(nn.Module):
         super().__init__()
         if SEMISEG_CODE not in sys.path:
             sys.path.insert(0, SEMISEG_CODE)
-        from algorithms.base import init_model_from_cfg
+        # algorithms.base.init_model_from_cfg does the same two lookups but
+        # imports the training stack (tensorboard) at module level.
+        from models import backbones, decode_heads
 
-        model = init_model_from_cfg({"backbone": backbone, "decode_head": decode_head}, train=False)
-        self.backbone = model.backbone
-        self.decode_head = model.decode_head
+        (backbone_name, backbone_kwargs), = backbone.items()
+        (head_name, head_kwargs), = decode_head.items()
+        self.backbone = backbones.__dict__[backbone_name](**backbone_kwargs)
+        self.decode_head = decode_heads.__dict__[head_name](**head_kwargs)
 
     def forward(self, x):
         logits = self.decode_head(self.backbone(x))

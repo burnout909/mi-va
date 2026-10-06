@@ -30,7 +30,7 @@
       "module": "mival_wrap_semiseg:SemiSegEncoderDecoder",
       "kwargs": {
         "backbone": {
-          "resnet18_seg": {
+          "resnet18": {
             "num_leads": 1,
             "num_stages": 4,
             "out_indices": [
@@ -130,6 +130,6 @@
       "zhejiang"
     ],
     "code_commit": "cf22fb55b7e85f01c4450deb085f8ce5b0932dcb",
-    "notes": "Config from the checkpoint: filters are scipy butter(order 5) + sosfiltfilt at 250 Hz, then standardize over (lead, time). The framework filters before resampling (500 Hz), which keeps the same passband. Lead II only (spec 2026-10-07). Class order none, P, QRS, T from the repo's label convention (unverified against a labelled record). License conflict: LICENSE Apache-2.0, README all rights reserved."
+    "notes": "Config from the checkpoint: filters are scipy butter(order 5) + sosfiltfilt at 250 Hz, then standardize over (lead, time). The framework filters before resampling (500 Hz), which keeps the same passband. Lead II only (spec 2026-10-07). Class order none, P, QRS, T from the repo's label convention (unverified against a labelled record). License conflict: LICENSE Apache-2.0, README all rights reserved. The checkpoint config names the backbone resnet18_seg; the public repo exposes it as resnet18 (same kwargs); strict load confirms the names match."
   }
 }
