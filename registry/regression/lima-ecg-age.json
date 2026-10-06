@@ -85,7 +85,7 @@
       "unit": "mV",
       "filters": [],
       "scaling": "none",
-      "gain": 10.0,
+      "gain": 1.0,
       "layout": "lead_time",
       "dtype": "float32",
       "pad_anchor": "center"
@@ -115,6 +115,6 @@
       "code"
     ],
     "code_commit": "f192e49e095708c038e4f430a41ad31fc4d3f8bd",
-    "notes": "Input unit: CODE tracings are in 1e-4 V (= mV x 10); scale_multiplier in train.py is parsed but never used, so gain 10. One-ECG check (2026-10-06 search): mV 79.1 y, mV x 10 47.7 y. Weights CC-BY-4.0, code MIT."
+    "notes": "Input unit is mV (gain 1). Checked on 300 MIMIC sample ECGs (2026-10-07): input x1 MAE 9.5 y, r 0.81; x10 MAE 14.3 y, bias -11.9; the README's '1e-4 V' and the one-ECG check that suggested x10 were wrong. scale_multiplier in train.py is parsed but never used. Weights CC-BY-4.0, code MIT."
   }
 }

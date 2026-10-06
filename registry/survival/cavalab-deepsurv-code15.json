@@ -59,7 +59,7 @@
       "unit": "mV",
       "filters": [],
       "scaling": "none",
-      "gain": 10.0,
+      "gain": 1.0,
       "layout": "lead_time",
       "dtype": "float32",
       "crop_anchor": "center"
@@ -87,6 +87,6 @@
       "code15"
     ],
     "code_commit": "199eab6bd1ef2a06754f4d27104cbdcdd8f17097",
-    "notes": "Higher output = higher hazard (Cox log-risk). No baseline hazard is shipped, so only discrimination is evaluated. CODE-15 tracings in 1e-4 V, hence gain 10; stored per-lead NM/NS (nchW) are applied in the wrapper, then 648 zeros each side. Lead order is CODE-15 standard (I, II, III, aVR, aVL, aVF); the benchmark's aVL/aVF swap applies to its own MIMIC h5, not to named leads. Code GPL-3.0, weights CC-BY-4.0."
+    "notes": "Higher output = higher hazard (Cox log-risk). No baseline hazard is shipped, so only discrimination is evaluated. Input unit mV (gain 1): CODE tracings are mV, established on Lima ECG-age (same corpus) where x1 gives MAE 9.5 y and x10 a 12-year bias; on 1,000 MIMIC sample ECGs (34 deaths) this model's C-index was 0.82 at x1 and 0.79 at x10, too few events to separate. Stored per-lead NM/NS (nchW) are applied in the wrapper, then 648 zeros each side. Lead order is CODE-15 standard (I, II, III, aVR, aVL, aVF); the benchmark's aVL/aVF swap applies to its own MIMIC h5, not to named leads. Code GPL-3.0, weights CC-BY-4.0."
   }
 }
