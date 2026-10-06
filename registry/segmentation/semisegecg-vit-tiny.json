@@ -1,0 +1,115 @@
+{
+  "model_id": "semisegecg-vit-tiny",
+  "Name": "SemiSegECG ViT-Tiny FCN (FixMatch)",
+  "Summary": "Per-sample P/QRS/T delineation of a single lead.",
+  "Link": "https://github.com/bakqui/semi-seg-ecg",
+  "Descriptors": {
+    "Version": "vit_tiny-fixmatch.pth",
+    "References": [
+      "arXiv:2507.18323"
+    ]
+  },
+  "Model properties": {
+    "Input": "single lead, 250 Hz, 2500 samples, 0.67-40 Hz Butterworth, z-score"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/semisegecg-vit-tiny/vit_tiny-fixmatch.pth",
+        "sha256": "5ce8e5daba91012803595eb9ffbadaf8a08665c41db6a346da331ba2fce3facd",
+        "role": "full"
+      }
+    ],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model",
+    "builder": {
+      "module": "mival_wrap_semiseg:SemiSegEncoderDecoder",
+      "kwargs": {
+        "backbone": {
+          "vit_tiny": {
+            "seq_len": 2500,
+            "patch_size": 25,
+            "num_leads": 1
+          }
+        },
+        "decode_head": {
+          "FCNHead": {
+            "in_channels": 192,
+            "in_index": 3,
+            "channels": 128,
+            "num_convs": 1,
+            "concat_input": false,
+            "dropout_ratio": 0.1,
+            "num_classes": 4,
+            "align_corners": false
+          }
+        }
+      }
+    },
+    "code_path": "/data/mi-val/models/_wrappers",
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "input_contract": {
+      "leads": [
+        "II"
+      ],
+      "sampling_rate_hz": 250,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [
+        {
+          "kind": "highpass",
+          "cutoff_hz": 0.67,
+          "order": 5
+        },
+        {
+          "kind": "lowpass",
+          "cutoff_hz": 40,
+          "order": 5
+        }
+      ],
+      "scaling": "global_zscore",
+      "layout": "lead_time",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "segmentation_mask",
+      "n_outputs": 4,
+      "classes": [
+        "none",
+        "P",
+        "QRS",
+        "T"
+      ],
+      "class_axis": 1
+    },
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {
+      "framework": "torch==2.13.0+cu130",
+      "python": "3.10.20",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/ecgfounder",
+      "returns": [
+        "logits"
+      ]
+    },
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "pretraining_corpora": [
+      "ludb",
+      "qtdb",
+      "isp",
+      "zhejiang"
+    ],
+    "code_commit": "cf22fb55b7e85f01c4450deb085f8ce5b0932dcb",
+    "notes": "Same family, data, preprocessing and license conflict as semisegecg-resnet18. Checkpoint config names the backbone vit_seg_tiny (seq_len 2500, patch 25, fp16_enabled); the public repo exposes vit_tiny. FixMatch semi-supervised variant."
+  }
+}

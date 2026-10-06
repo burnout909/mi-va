@@ -1,0 +1,85 @@
+{
+  "model_id": "openecg-codec-v6",
+  "Name": "OpenECG layered codec v6 (frame head)",
+  "Summary": "Per-sample other/P/QRS/T frame labels for a single lead.",
+  "Link": "https://pypi.org/project/openecg/0.11.0/",
+  "Descriptors": {
+    "Version": "codec_v6.pt (openecg 0.11.0)",
+    "References": []
+  },
+  "Model properties": {
+    "Input": "single lead, 500 Hz, 5000 samples, rank-normalized per window"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/openecg-codec-v6/mival_state_dict.pt",
+        "sha256": "5274cdbf14f7b7b350bd752f51f85e98d48c6d09d1370314b2f8884236ebb0cc",
+        "role": "full",
+        "derived_from": {
+          "uri": "/data/mi-val/models/openecg-codec-v6/codec_v6.pt",
+          "sha256": "4caf710737c4b9024b5b2b79b897af04c13f82f4f8e5f29b7dc4c8309e487a58",
+          "by": "mival_wrap_openecg.convert"
+        }
+      }
+    ],
+    "weights_format": "state_dict",
+    "builder": {
+      "module": "mival_wrap_openecg:OpenEcgFrame",
+      "kwargs": {}
+    },
+    "code_path": "/data/mi-val/models/_wrappers",
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "input_contract": {
+      "leads": [
+        "II"
+      ],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "none",
+      "layout": "lead_time",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "segmentation_mask",
+      "n_outputs": 4,
+      "classes": [
+        "other",
+        "P",
+        "QRS",
+        "T"
+      ],
+      "class_axis": 2
+    },
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {
+      "framework": "torch==2.13.0+cu130",
+      "python": "3.10.20",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/ecgfounder",
+      "returns": [
+        "logits"
+      ]
+    },
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "pretraining_corpora": [
+      "ludb",
+      "qtdb",
+      "isp"
+    ],
+    "code_commit": "843698d",
+    "notes": "No paper; README and codec_v6_MODEL_CARD.md only. Apache-2.0. The torch checkpoint is used (not the batch-1 ONNX); rank normalisation and lead id (II = 1) are applied in the wrapper with the package's own rank_normalize (needs opendsp 0.1.0 in the env). The model card recommends scoring 2-8 s; the decoder already skips beats cut by the window edges. Weights converted to a state_dict of the wrapper (same tensors)."
+  }
+}
