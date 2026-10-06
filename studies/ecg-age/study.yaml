@@ -24,7 +24,7 @@ stages:
     perturbation:
       axes:
         resample: [500]
-        duration: [10]
+        duration: [10.24]  # baseline-only, equal to Lima's contract (10 s padded to 4096 at 400 Hz)
     registry: registry/regression
     pad_policy: zero  # Lima centres 10 s in 4096 samples at 400 Hz (pad_anchor: center)
 
