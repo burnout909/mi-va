@@ -240,6 +240,24 @@ def _check_n_outputs(card: ModelCard, state: Dict[str, Any]) -> None:
         raise ValueError(f"card declares {declared} outputs but the checkpoint has {actual}")
 
 
+#: Output types read without a positive_index or value_index check: a risk
+#: score is the module's single output, a mask is decoded to intervals.
+SCORE_FREE_OUTPUT_TYPES = ("risk_score", "segmentation_mask")
+
+
+def _decode_mask(handle: "TorchHandle", outputs: Any) -> np.ndarray:
+    """(B, C, T) per-sample class scores -> (B, 3) PR, QRS, QT in ms."""
+    from mival.decode.intervals import intervals_from_mask, remap_classes
+
+    output = handle.card.output
+    class_axis = int(output.get("class_axis", 1))
+    mask = outputs.argmax(dim=class_axis).detach().cpu().numpy()
+    if output.get("classes"):
+        mask = remap_classes(mask, output["classes"])
+    fs = float(output.get("mask_rate_hz", handle.card.input_contract.sampling_rate_hz))
+    return intervals_from_mask(mask, fs)
+
+
 class TorchAdapter(Adapter):
     name = "torch"
 
@@ -288,7 +306,9 @@ class TorchAdapter(Adapter):
         import torch
 
         kind = handle.card.output.get("type", "logits")
-        if kind == "regression":
+        if kind in SCORE_FREE_OUTPUT_TYPES:
+            pass
+        elif kind == "regression":
             if handle.card.output.get("value_index") is None:
                 raise NotImplementedError(
                     f"{handle.card.model_id!r} declares output.type 'regression' but no "
@@ -310,6 +330,8 @@ class TorchAdapter(Adapter):
                 f"{handle.card.model_id!r} returns a representation only; there is no "
                 "published head to read a score from"
             )
+        if kind == "segmentation_mask":
+            return _decode_mask(handle, logits)
         return self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(
             np.float64
         )
@@ -325,6 +347,12 @@ class TorchAdapter(Adapter):
         kind = handle.card.output.get("type", "logits")
         if kind == "regression":
             return outputs[:, int(handle.card.output["value_index"])]
+        if kind == "risk_score":
+            return outputs.reshape(outputs.shape[0], -1)[:, int(handle.card.output.get("value_index", 0))]
+        if kind == "segmentation_mask":
+            raise NotImplementedError(
+                f"{handle.card.model_id!r}: a segmentation mask has no single score to attribute"
+            )
         index = int(handle.card.output["positive_index"])
         if kind == "softmax":
             return torch.softmax(outputs, dim=-1)[:, index]
