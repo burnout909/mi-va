@@ -109,3 +109,18 @@ polyphase 차이일 가능성은 확인하지 않았다.
 | SemiSegECG ResNet-18 | 15.9 (−8.9) | 27.5 (+26.3) | 26.6 (+23.1) |
 
 CI 폭은 모두 ±0.3 ms 안팎이다. QRS·QT의 양의 bias는 학습 라벨의 경계 정의 차이로 본다(확인 안 함).
+
+## 같은 밤의 LVEF 전체 실행
+
+`studies/lvef`, 코드 `37da0aa`(LVEF L1 수정 전), test 36,170 ECG (LVEF ≤ 40: 8,673). 체인의 예측 합치기
+단계가 models run을 찾지 못해 evaluate가 한 번 실패했고, models 로그의 `run_dir`로 합쳐 다시 돌렸다
+(`/data/mi-val/runs/lvef/_full/eval_fix.sh`, evaluate `3ed72afa77a04cea`).
+
+| arm | AUROC (≤40) | AUPRC | MAE | R² |
+|---|---|---|---|---|
+| xECG linear probe | 0.890 (0.881–0.899) | 0.736 | 8.41 | 0.441 |
+| ECGFounder linear probe | 0.867 (0.858–0.875) | 0.682 | 8.96 | 0.369 |
+| HeartWise (published heads) | 0.844 (0.834–0.854) | 0.669 | 8.33 | 0.408 |
+
+ECGFounder·xECG 회귀 probe는 target 표준화(L1 후보) 전이다. 시간: DICOM 43분, preprocess 33분, models xECG
+3시간 42분 / ECGFounder env 4시간 54분(GPU를 다른 study와 나눔), evaluate 24분.
