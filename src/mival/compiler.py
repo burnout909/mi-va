@@ -106,7 +106,7 @@ def compile_recipe(
 
     # 5. length
     if n_after_resample > contract.n_samples:
-        ops.append(Crop(contract.n_samples))
+        ops.append(Crop(contract.n_samples, anchor=contract.crop_anchor))
     elif n_after_resample < contract.n_samples:
         if pad_policy == "reject":
             raise CompileError(
@@ -114,7 +114,7 @@ def compile_recipe(
                 f"source yields {n_after_resample} samples but the contract needs "
                 f"{contract.n_samples}",
             )
-        ops.append(Pad(contract.n_samples, mode=pad_policy))
+        ops.append(Pad(contract.n_samples, mode=pad_policy, anchor=contract.pad_anchor))
 
     # 6. gain: a card-declared quirk on top of the unit, applied before
     #    normalization so it changes the mean/std that step measures.

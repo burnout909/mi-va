@@ -47,6 +47,10 @@ class InputContract:
     dtype: str
     filters: Tuple[Dict[str, Any], ...] = field(default=())
     gain: float = 1.0
+    #: Where a longer record is cut and a shorter one is padded. ``start`` is
+    #: the behaviour every card had before the keys existed.
+    crop_anchor: str = "start"
+    pad_anchor: str = "start"
 
     @property
     def n_samples(self) -> int:
@@ -101,4 +105,16 @@ class InputContract:
             dtype=str(body["dtype"]),
             filters=filters,
             gain=float(body.get("gain", 1.0)),
+            crop_anchor=_anchor(body, "crop_anchor"),
+            pad_anchor=_anchor(body, "pad_anchor"),
         )
+
+
+ANCHORS = ("start", "center")
+
+
+def _anchor(body: Dict[str, Any], key: str) -> str:
+    value = str(body.get(key, "start"))
+    if value not in ANCHORS:
+        raise ValueError(f"unsupported {key} {value!r}: must be one of {list(ANCHORS)}")
+    return value

@@ -146,7 +146,12 @@ class Pad(Op):
         if self.mode not in SUPPORTED_PAD_MODES:
             raise ValueError(f"unknown pad mode: {self.mode}")
         deficit = self.n_samples - sig.n_samples
-        before, after = (0, deficit) if self.anchor == "start" else (deficit, 0)
+        if self.anchor == "start":
+            before, after = 0, deficit
+        elif self.anchor == "center":
+            before, after = deficit // 2, deficit - deficit // 2
+        else:
+            before, after = deficit, 0
         padded = np.pad(sig.data, ((0, 0), (before, after)), mode="constant")
         return Signal(
             data=np.ascontiguousarray(padded, dtype=np.float32),
