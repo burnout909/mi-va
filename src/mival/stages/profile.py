@@ -16,6 +16,8 @@ from mival.pipeline.tables import read_table, write_table
 COHORT_SPLIT = "cohort_split.parquet"
 SUMMARY = "profile_summary.json"
 COHORT_SPLIT_COLUMNS = ("person_id", "split", "fold")
+#: ``stratify_on: none`` puts every person in one stratum.
+STRATIFY_NONE = "none"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,10 @@ class ProfileStage(Stage):
     def run(self, ctx: StageContext) -> StageResult:
         spec = ProfileSpec.from_mapping(ctx.spec or {})
         cohort = read_table(ctx.input_path("cohort_index"))
+        if spec.stratify_on == STRATIFY_NONE:
+            # One stratum: a continuous or survival label has no 0/1 column to
+            # balance, and the event-count gate is then a row count.
+            cohort = cohort.assign(**{STRATIFY_NONE: 1})
         # A person is positive if any of their ECGs is, so the split is stratified on people.
         persons = cohort.groupby("person_id")[spec.stratify_on].max().reset_index()
         split = assign_splits(persons, spec.stratify_on, spec.test_fraction, spec.n_folds, ctx.seed)

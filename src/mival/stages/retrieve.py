@@ -17,13 +17,31 @@ SUMMARY = "retrieve_summary.json"
 SQL_DIR = "sql"
 SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_label.sql"
 SNAPSHOT_SQL_FILE = Path(__file__).with_name("sql") / "label_snapshot.sql"
+PERSON_SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_person.sql"
+
+#: ``label_source.kind``. ``measurement`` is the original nearest-measurement
+#: label; the others are derived from the person, death and visit tables or
+#: from a per-ECG file, and leave the measurement cutoff columns empty.
+LABEL_KINDS = ("measurement", "age_at_ecg", "death_within", "machine_measurement")
+#: Extra cohort_index columns written by each derived kind.
+DERIVED_COLUMNS = {
+    "age_at_ecg": (),
+    "death_within": ("label_event", "label_time_days"),
+    "machine_measurement": ("label_pr", "label_qrs", "label_qt"),
+}
+#: Plausible machine-measured intervals in ms; outside is a device artefact or
+#: a missing-value code (29999, 65535, ...).
+INTERVAL_BOUNDS = {"label_pr": (60.0, 400.0), "label_qrs": (40.0, 250.0), "label_qt": (200.0, 700.0)}
+#: Out-of-hospital deaths in MIMIC-IV are recorded up to one year after the
+#: last hospital contact; follow-up past that is not observed.
+DEATH_FOLLOW_UP_DAYS = 365
 
 COHORT_INDEX_COLUMNS = (
     "image_occurrence_id", "person_id", "local_path", "index_datetime",
     "label_datetime", "label_delta_days", "label_value",
     "label_primary", "label_sens1", "label_sens2", "label_sens3",
 )
-REASON_CODES = frozenset({"label_missing", "label_implausible", "path_unresolvable", "file_missing"})
+REASON_CODES = frozenset({"label_missing", "label_implausible", "path_unresolvable", "file_missing", "not_selected"})
 
 Query = Callable[[str, Mapping[str, Any]], Any]
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -42,6 +60,10 @@ class RetrieveSpec:
     require_local_file: bool
     primary_cutoff: float = 40.0   # label_primary = value <= primary_cutoff
     sens1_cutoff: float = 50.0     # label_sens1 = value < sens1_cutoff
+    label_kind: str = "measurement"
+    horizon_days: int = 365
+    measurements_path: Optional[str] = None
+    one_per_person: bool = False
 
     @classmethod
     def from_mapping(cls, body: Mapping[str, Any]) -> "RetrieveSpec":
@@ -53,7 +75,17 @@ class RetrieveSpec:
         schema = str(body.get("schema", "cdm"))
         if not _IDENTIFIER.match(schema):
             raise ValueError(f"retrieve.schema {schema!r} is not a plain identifier")
+        source = body.get("label_source") or {}
+        kind = str(source.get("kind", "measurement"))
+        if kind not in LABEL_KINDS:
+            raise ValueError(f"retrieve.label_source.kind {kind!r} is not one of {list(LABEL_KINDS)}")
+        if kind == "machine_measurement" and not source.get("path"):
+            raise ValueError("retrieve.label_source.path is required for kind 'machine_measurement'")
         return cls(
+            label_kind=kind,
+            horizon_days=int(source.get("horizon_days", 365)),
+            measurements_path=None if source.get("path") is None else str(source["path"]),
+            one_per_person=bool(body.get("one_per_person", False)),
             dsn_env=str(body["dsn_env"]),
             schema=schema,
             label_concept_id=int(body.get("label_concept_id", 3027172)),
@@ -82,9 +114,18 @@ class RetrieveStage(Stage):
     def __init__(self, query: Optional[Query] = None) -> None:
         self._query = query  # injected in tests; None means PostgreSQL via dsn_env
 
+    def config_inputs(self, spec: Mapping[str, Any]) -> dict:
+        """The per-ECG label file of ``machine_measurement``, so its content is hashed."""
+        source = (spec or {}).get("label_source") or {}
+        if source.get("kind") == "machine_measurement" and source.get("path"):
+            return {"machine_measurements": Path(str(source["path"]))}
+        return {}
+
     def run(self, ctx: StageContext) -> StageResult:
         spec = RetrieveSpec.from_mapping(ctx.spec or {})
         query = self._query or (lambda sql, params: query_postgres(sql, params, spec.dsn_env))
+        if spec.label_kind != "measurement":
+            return self._run_derived(ctx, spec, query)
         sql = SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
 
         snapshot_sql = SNAPSHOT_SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
@@ -113,6 +154,128 @@ class RetrieveStage(Stage):
         summary_path = write_summary(ctx, frame, kept, snapshot)
         return StageResult(outputs=[index_path, summary_path, *sql_paths],
                            counts={"in": len(frame), "out": len(kept)})
+
+
+    def _run_derived(self, ctx: StageContext, spec: RetrieveSpec, query: Query) -> StageResult:
+        """Labels computed per ECG rather than read from a nearby measurement."""
+        import numpy as np
+
+        sql = PERSON_SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
+        params = {"modality_concept_id": spec.modality_concept_id}
+        frame = query(sql, params)
+        frame["local_path"] = frame["local_path"].map(lambda p: resolve_local_path(p, spec.local_path_root))
+        frame = frame.assign(label_datetime=None, label_delta_days=np.nan, label_primary=np.nan,
+                             label_sens1=np.nan, label_sens2=np.nan, label_sens3=np.nan)
+        frame = derive_labels(frame, spec)
+        kept = exclude_derived(frame, spec, ctx.ledger)
+        if spec.one_per_person:
+            kept = one_per_person(kept, ctx.seed, ctx.ledger)
+        columns = COHORT_INDEX_COLUMNS + DERIVED_COLUMNS[spec.label_kind]
+        index_path = write_table(kept[list(columns)].to_dict("records"),
+                                 ctx.layout.artifact(COHORT_INDEX), columns)
+        sql_path = write_sql(ctx, sql, params, "ecg_person")
+        payload = {
+            "label_kind": spec.label_kind,
+            "n_ecg": int(len(frame)),
+            "n_out": int(len(kept)),
+            "n_persons_out": int(kept["person_id"].nunique()),
+            "excluded": ctx.ledger.counts(),
+        }
+        for column in ("label_value",) + DERIVED_COLUMNS[spec.label_kind]:
+            values = kept[column].dropna()
+            if len(values):
+                payload[f"{column}_quantiles"] = {
+                    f"p{int(q * 100)}": float(v) for q, v in values.quantile([0.05, 0.5, 0.95]).items()}
+        if spec.label_kind == "death_within":
+            payload["events"] = int(kept["label_event"].sum())
+        summary_path = ctx.layout.artifact(SUMMARY)
+        summary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return StageResult(outputs=[index_path, summary_path, sql_path],
+                           counts={"in": len(frame), "out": len(kept)})
+
+
+def derive_labels(frame, spec: RetrieveSpec):
+    """Fill ``label_value`` or the kind's extra columns; NaN where none can be derived."""
+    import numpy as np
+    import pandas
+
+    index = pandas.to_datetime(frame["index_datetime"])
+    if spec.label_kind == "age_at_ecg":
+        frame["label_value"] = (index.dt.year - frame["year_of_birth"]).astype(float)
+        return frame
+    frame["label_value"] = np.nan
+    if spec.label_kind == "death_within":
+        death = pandas.to_datetime(frame["death_date"])
+        last = pandas.to_datetime(frame["last_visit_end"])
+        end = np.minimum(index + pandas.Timedelta(days=spec.horizon_days),
+                         last + pandas.Timedelta(days=DEATH_FOLLOW_UP_DAYS))
+        event = death.notna() & (death <= end)
+        stop = death.where(event, end)
+        frame["label_event"] = event.astype(float).where(last.notna())
+        frame["label_time_days"] = (stop - index).dt.days.astype(float).where(last.notna())
+        return frame
+    measurements = pandas.read_csv(spec.measurements_path,
+                                   usecols=["study_id", "p_onset", "qrs_onset", "qrs_end", "t_end"])
+    intervals = pandas.DataFrame({
+        "study_id": measurements["study_id"].astype("int64"),
+        "label_pr": measurements["qrs_onset"] - measurements["p_onset"],
+        "label_qrs": measurements["qrs_end"] - measurements["qrs_onset"],
+        "label_qt": measurements["t_end"] - measurements["qrs_onset"],
+    }).astype({"label_pr": float, "label_qrs": float, "label_qt": float})
+    for column, (low, high) in INTERVAL_BOUNDS.items():
+        raw = intervals[column]
+        intervals[column] = raw.where(raw.between(low, high), -1.0)  # -1: present but implausible
+    frame["study_id"] = frame["local_path"].map(_study_id)
+    merged = frame.merge(intervals.drop_duplicates("study_id"), on="study_id", how="left")
+    return merged
+
+
+def _study_id(path: Any) -> Optional[int]:
+    """The ``s<digits>`` directory of a MIMIC-IV-ECG path."""
+    match = re.search(r"/s(\d+)/", str(path))
+    return int(match.group(1)) if match else None
+
+
+def exclude_derived(frame, spec: RetrieveSpec, ledger):
+    def drop(frame, mask, code, detail):
+        for row in frame[mask].itertuples(index=False):
+            ledger.record(row.image_occurrence_id, row.person_id, code, detail(row))
+        return frame[~mask]
+
+    if spec.label_kind == "age_at_ecg":
+        frame = drop(frame, frame["label_value"].isna(), "label_missing", lambda r: "no year_of_birth")
+        frame = drop(frame, frame["label_value"] < 18, "label_implausible", lambda r: f"age={r.label_value}")
+    elif spec.label_kind == "death_within":
+        frame = drop(frame, frame["label_time_days"].isna(), "label_implausible",
+                     lambda r: "no visit to bound follow-up")
+        frame = drop(frame, frame["label_time_days"] <= 0, "label_implausible",
+                     lambda r: f"follow-up {r.label_time_days} days")
+    else:
+        columns = list(DERIVED_COLUMNS["machine_measurement"])
+        frame = drop(frame, frame[columns].isna().any(axis=1), "label_missing",
+                     lambda r: "no machine measurement for this study_id")
+        frame = drop(frame, (frame[columns] < 0).any(axis=1), "label_implausible",
+                     lambda r: "interval outside plausible bounds or a missing-value code")
+    frame = drop(frame, frame["local_path"].isna(), "path_unresolvable",
+                 lambda r: "no 'files/' segment in the CDM local_path")
+    if spec.require_local_file:
+        frame = drop(frame, ~frame["local_path"].map(lambda p: Path(p).is_file()), "file_missing",
+                     lambda r: r.local_path)
+    return frame
+
+
+def one_per_person(frame, seed, ledger):
+    """One seeded random ECG per person; the rest are ledgered as not selected."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    ordered = frame.sort_values("image_occurrence_id").reset_index(drop=True)
+    keys = rng.random(len(ordered))
+    chosen = ordered.assign(_key=keys).sort_values(["person_id", "_key"]).groupby("person_id").head(1).index
+    mask = ordered.index.isin(chosen)
+    for row in ordered[~mask].itertuples(index=False):
+        ledger.record(row.image_occurrence_id, row.person_id, "not_selected", "one ECG per person")
+    return ordered[mask]
 
 
 def resolve_local_path(cdm_path: Any, root: str) -> Optional[str]:
