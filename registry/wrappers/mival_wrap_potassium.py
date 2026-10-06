@@ -39,18 +39,38 @@ def _path(code):
         sys.path.insert(0, code)
 
 
-def kardionet_clean(batch, fs=500):
-    """(B, 12, T) mV -> baseline-removed, wavelet-denoised, as in preprocessing.py."""
+def _clean_one(record, fs=500):
     _path(KARDIONET_CODE)
     from utils.ecg_utils import remove_baseline_wander, wavelet_denoise_signal
 
-    out = np.empty_like(batch, dtype=np.float32)
-    for k, record in enumerate(batch):
-        signal = remove_baseline_wander(np.ascontiguousarray(record.T), sampling_frequency=fs)
-        for lead in range(signal.shape[1]):
-            signal[:, lead] = wavelet_denoise_signal(signal[:, lead])[: signal.shape[0]]
-        out[k] = signal.T
-    return out
+    signal = remove_baseline_wander(np.ascontiguousarray(record.T), sampling_frequency=fs)
+    for lead in range(signal.shape[1]):
+        signal[:, lead] = wavelet_denoise_signal(signal[:, lead])[: signal.shape[0]]
+    return signal.T.astype(np.float32)
+
+
+_POOL = None
+#: The authors' per-record cleaning is ~0.18 s on one core; a process pool
+#: keeps a 120k-record cohort to minutes. Spawned workers never touch CUDA.
+POOL_WORKERS = 12
+
+
+def _pool():
+    global _POOL
+    if _POOL is None:
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+
+        _POOL = ProcessPoolExecutor(POOL_WORKERS, mp_context=multiprocessing.get_context("spawn"))
+    return _POOL
+
+
+def kardionet_clean(batch, fs=500):
+    """(B, 12, T) mV -> baseline-removed, wavelet-denoised, as in preprocessing.py."""
+    batch = np.asarray(batch, dtype=np.float32)
+    if len(batch) < 4:
+        return np.stack([_clean_one(record, fs) for record in batch]) if len(batch) else batch
+    return np.stack(list(_pool().map(_clean_one, batch, [fs] * len(batch))))
 
 
 class KardioNet12Lead(nn.Module):
