@@ -156,3 +156,12 @@ def test_measurement_file_takes_the_nearest_value_in_window(tmp_path):
     assert index["label_value"].tolist() == [500.0] and index["label_delta_days"].tolist() == [0]
     assert excluded == {"2": "label_missing", "3": "label_implausible"}
     assert set(RetrieveStage().config_inputs(body).values()) == {labs}
+
+
+def test_death_on_the_ecg_day_is_an_event_at_time_zero(tmp_path):
+    d0 = date(2180, 1, 1)
+    index, excluded = run(tmp_path, spec(tmp_path, "death_within"),
+                          [ecg(1, 10, d0, death=d0, last_visit=d0), ecg(2, 11, d0, death=None, last_visit=date(2178, 1, 1))])
+    assert index["image_occurrence_id"].tolist() == [1]
+    assert (index["label_event"].iloc[0], index["label_time_days"].iloc[0]) == (1.0, 0.0)
+    assert excluded == {"2": "label_implausible"}

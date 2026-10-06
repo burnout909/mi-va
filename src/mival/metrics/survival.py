@@ -17,7 +17,8 @@ METRIC_STEMS = ("auroc_horizon",)
 def harrell_c(time: Sequence, event: Sequence, risk: Sequence) -> float:
     """Concordance over pairs where the earlier time is an event; risk ties count 1/2.
 
-    Pairs tied on time are not comparable. Exact, and O(levels x distinct risks)
+    An event and a censoring at the same time are comparable (the censored
+    record outlived the event); two events at the same time are not. Exact, and O(levels x distinct risks)
     so it stays fast on a large cohort with day-resolution times.
     """
     time = np.asarray(time, dtype=np.float64)
@@ -35,14 +36,21 @@ def harrell_c(time: Sequence, event: Sequence, risk: Sequence) -> float:
     for k in range(len(levels)):
         group = order[bounds[k]:bounds[k + 1]]
         events = group[event[group]]
+        censored = group[~event[group]]
+        # A record censored at an event's own time outlived it (Harrell;
+        # lifelines, survival::concordance); two events at one time are not
+        # comparable. So this level's censored records join ``later`` before
+        # its events are scored.
+        np.add.at(later, rank[censored], 1.0)
+        n_later += censored.size
         if events.size and n_later:
             below = np.cumsum(later) - later
             ranks = rank[events]
             concordant += below[ranks].sum()
             tied += later[ranks].sum()
             comparable += n_later * events.size
-        np.add.at(later, rank[group], 1.0)
-        n_later += group.size
+        np.add.at(later, rank[events], 1.0)
+        n_later += events.size
     return float((concordant + 0.5 * tied) / comparable) if comparable else float("nan")
 
 

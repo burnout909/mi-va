@@ -22,7 +22,7 @@ def _naive_c(time, event, risk):
         if not event[i]:
             continue
         for j in range(len(time)):
-            if time[j] > time[i]:
+            if j != i and (time[j] > time[i] or (time[j] == time[i] and not event[j])):
                 den += 1
                 num += 1.0 if risk[i] > risk[j] else 0.5 if risk[i] == risk[j] else 0.0
     return num / den
@@ -38,7 +38,7 @@ def test_harrell_c_known_example():
     e = rng.integers(0, 2, 300)
     r = np.round(rng.normal(size=300), 1)
     assert harrell_c(t, e, r) == pytest.approx(_naive_c(t, e, r))
-    assert harrell_c(t, e, -t.astype(float)) == pytest.approx(1.0)
+    assert harrell_c(t, e, -t.astype(float)) == pytest.approx(_naive_c(t, e, -t.astype(float)))
 
 
 def test_auroc_at_horizon_excludes_early_censored():
@@ -123,3 +123,13 @@ def test_evaluate_interval_arm_uses_its_own_label_and_cut(tmp_path):
     metrics = dict(zip(table["metric"], table["value"]))
     assert metrics["bias"] == pytest.approx(5.0, abs=1.0)
     assert "auroc_below@120" in metrics
+
+
+def test_harrell_c_counts_same_time_censoring_as_outliving_the_event():
+    # lifelines / survival::concordance: a record censored at the event's time outlived it.
+    assert harrell_c(np.array([1, 1, 2]), np.array([1, 0, 1]), np.array([2.0, 1.0, 3.0])) == pytest.approx(0.5)
+    time = np.array([3, 3, 3, 5])
+    event = np.array([1, 1, 0, 0])
+    risk = np.array([0.9, 0.1, 0.5, 0.0])
+    # events at 3 vs censored at 3 (risk .5) and censored at 5 (risk 0); event-event ties excluded
+    assert harrell_c(time, event, risk) == pytest.approx(3 / 4)

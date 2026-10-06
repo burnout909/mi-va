@@ -293,7 +293,11 @@ def exclude_derived(frame, spec: RetrieveSpec, ledger):
     elif spec.label_kind == "death_within":
         frame = drop(frame, frame["label_time_days"].isna(), "label_implausible",
                      lambda r: "no visit to bound follow-up")
-        frame = drop(frame, frame["label_time_days"] <= 0, "label_implausible",
+        # A death on the ECG's own day is an event at time 0 and stays; no
+        # follow-up at all (censored at or before the ECG) is excluded.
+        no_follow_up = (frame["label_time_days"] < 0) | (
+            (frame["label_time_days"] == 0) & (frame["label_event"] == 0))
+        frame = drop(frame, no_follow_up, "label_implausible",
                      lambda r: f"follow-up {r.label_time_days} days")
     else:
         columns = list(DERIVED_COLUMNS["machine_measurement"])
