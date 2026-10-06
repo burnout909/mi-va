@@ -32,6 +32,7 @@ from mival.stages._predictions import (
     fit_operating_thresholds,
     group_by_run_key as _group_by_run_key,
     is_regression,
+    is_survival,
     load_predictions as _load_predictions,
     recorded_thresholds_and_contamination,
 )
@@ -66,6 +67,7 @@ CATEGORIES = (
     "clinical_utility",
     "interpretation",
     "regression",
+    "survival",
 )
 
 # Category 4 (interpretation) holds a schema slot and emits no rows in this
@@ -223,7 +225,8 @@ class EvaluateStage(Stage):
                         # Same restriction the metrics use: a record without a
                         # label for this outcome is not part of this curve.
                         labelled = slice_frame[slice_frame[label_column].notna()]
-                        if not len(labelled):
+                        if not len(labelled) or is_survival(key):
+                            # No survival figure yet (spec: stage 2).
                             continue
                         if is_regression(key):
                             # The same rows _regression_rows scores: a null
@@ -388,11 +391,35 @@ class _Settings:
         cuts = spec.get("regression_cuts", DEFAULT_REGRESSION_CUTS)
         # The first cut defines the event stratum a regression arm's bootstrap
         # resamples on, so an empty or scalar setting has no silent fallback.
-        if not isinstance(cuts, (list, tuple)) or not cuts:
+        # A mapping gives each label_def its own cuts (age, PR, QRS, QT differ).
+        def _cuts(value, where):
+            if not isinstance(value, (list, tuple)) or not value:
+                raise ValueError(
+                    f"evaluate.regression_cuts{where} must be a non-empty list of numbers, got {value!r}"
+                )
+            return tuple(float(cut) for cut in value)
+
+        if isinstance(cuts, Mapping):
+            self.regression_cuts_by_label: Optional[Dict[str, Tuple[float, ...]]] = {
+                str(label): _cuts(value, f"[{label!r}]") for label, value in cuts.items()
+            }
+            self.regression_cuts: Tuple[float, ...] = ()
+        else:
+            self.regression_cuts_by_label = None
+            self.regression_cuts = _cuts(cuts, "")
+        self.horizons: Tuple[float, ...] = tuple(
+            float(day) for day in (spec.get("horizons_days") or [spec.get("horizon_days", 365)])
+        )
+
+    def cuts_for(self, label_def: str) -> Tuple[float, ...]:
+        if self.regression_cuts_by_label is None:
+            return self.regression_cuts
+        if label_def not in self.regression_cuts_by_label:
             raise ValueError(
-                f"evaluate.regression_cuts must be a non-empty list of numbers, got {cuts!r}"
+                f"evaluate.regression_cuts names no cuts for label_def {label_def!r}; "
+                f"it has {sorted(self.regression_cuts_by_label)}"
             )
-        self.regression_cuts: Tuple[float, ...] = tuple(float(cut) for cut in cuts)
+        return self.regression_cuts_by_label[label_def]
 
     @classmethod
     def from_spec(cls, spec, default_decision_thresholds, default_murphy_bins) -> "_Settings":
@@ -422,7 +449,8 @@ class _Settings:
         )
 
     def label_column_for(self, label_def: str) -> str:
-        return self.label_columns.get(label_def, f"label_{label_def}")
+        default = "label_event" if label_def == "survival" else f"label_{label_def}"
+        return self.label_columns.get(label_def, default)
 
     def outcome_columns(self, key: RunKey, frame, warnings: List[str]):
         """``(outcome, column)`` pairs for one run_key group.
@@ -483,6 +511,8 @@ def _rows_for_slice(
 ) -> List[Dict[str, Any]]:
     if is_regression(key):
         return _regression_rows(key, frame, label_column, outcome, subgroup, settings, contaminated)
+    if is_survival(key):
+        return _survival_rows(key, frame, label_column, outcome, subgroup, settings, contaminated)
 
     import numpy as np
 
@@ -586,12 +616,13 @@ def _regression_rows(
     n = int(y.size)
     if n == 0:
         return []
+    cuts = settings.cuts_for(key.label_def)
     # Events for stratified resampling and the suppression floor: the primary cut.
-    events = (y <= settings.regression_cuts[0]).astype(float)
+    events = (y <= cuts[0]).astype(float)
     n_events = int(events.sum())
 
     def statistic(indices) -> Dict[str, float]:
-        return regression_metrics(y[indices], p[indices], settings.regression_cuts)
+        return regression_metrics(y[indices], p[indices], cuts)
 
     point = statistic(np.arange(n))
     intervals: Dict[str, Any] = {}
@@ -610,6 +641,77 @@ def _regression_rows(
             point=point,
         )
 
+    rows: List[Dict[str, Any]] = []
+    base = key.to_dict()
+    for metric, value in point.items():
+        interval = intervals.get(metric)
+        row = dict(base)
+        row.update(dict(zip(REPORT_AXES, (subgroup, outcome))))
+        row.update(
+            {
+                "category": category_of(metric),
+                "metric": metric,
+                "value": _finite(value),
+                "ci_lo": _finite(interval.ci_lo) if interval is not None else None,
+                "ci_hi": _finite(interval.ci_hi) if interval is not None else None,
+                "n": n,
+                "n_events": n_events,
+                "suppressed": bool(n_events < settings.min_events),
+                "contaminated": bool(contaminated),
+            }
+        )
+        rows.append(row)
+    return rows
+
+
+def _survival_rows(
+    key: RunKey,
+    frame,
+    label_column: str,
+    outcome: str,
+    subgroup: str,
+    settings: _Settings,
+    contaminated: bool,
+) -> List[Dict[str, Any]]:
+    """Category 'survival': Harrell's C and AUROC at each horizon, person bootstrap.
+
+    ``label_column`` is the event flag; the follow-up time is ``label_time_days``.
+    A risk score carries no baseline hazard, so there is no calibration here.
+    """
+    import numpy as np
+
+    from mival.metrics import category_of
+    from mival.metrics.bootstrap import bootstrap_ci, event_strata
+    from mival.metrics.survival import survival_metrics
+
+    usable = frame[
+        frame[label_column].notna() & frame["label_time_days"].notna() & frame["pred_value"].notna()
+    ]
+    event = usable[label_column].to_numpy(dtype=float)
+    time = usable["label_time_days"].to_numpy(dtype=float)
+    risk = usable["pred_value"].to_numpy(dtype=float)
+    n = int(event.size)
+    if n == 0:
+        return []
+    n_events = int(event.sum())
+
+    def statistic(indices) -> Dict[str, float]:
+        return survival_metrics(time[indices], event[indices], risk[indices], settings.horizons)
+
+    point = statistic(np.arange(n))
+    intervals: Dict[str, Any] = {}
+    if settings.bootstrap and settings.bootstrap_replicates > 0:
+        groups = usable[BOOTSTRAP_UNIT].to_numpy() if BOOTSTRAP_UNIT in usable.columns else None
+        intervals = bootstrap_ci(
+            statistic,
+            n_rows=n,
+            n_replicates=settings.bootstrap_replicates,
+            seed=settings.seed,
+            groups=groups,
+            strata=event_strata(event, groups),
+            alpha=settings.bootstrap_alpha,
+            point=point,
+        )
     rows: List[Dict[str, Any]] = []
     base = key.to_dict()
     for metric, value in point.items():

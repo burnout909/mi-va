@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Dict, Sequence
+from typing import Tuple, Dict, Sequence
 
 import numpy as np
 
 from .discrimination import auroc
 
-METRICS = ("mae", "rmse", "r2")
+METRICS = ("mae", "rmse", "r2", "bias", "loa_lo", "loa_hi")
 METRIC_STEMS = ("auroc_below",)
 
 
@@ -32,6 +32,20 @@ def r2(y_true: Sequence, y_pred: Sequence) -> float:
     return float("nan") if total == 0 else 1.0 - float(np.sum((p - y) ** 2)) / total
 
 
+def bias(y_true: Sequence, y_pred: Sequence) -> float:
+    """Mean of prediction minus truth (Bland-Altman bias)."""
+    y, p = _arrays(y_true, y_pred)
+    return float(np.mean(p - y))
+
+
+def limits_of_agreement(y_true: Sequence, y_pred: Sequence) -> Tuple[float, float]:
+    """Bland-Altman 95% limits: bias -/+ 1.96 SD of the differences."""
+    y, p = _arrays(y_true, y_pred)
+    diff = p - y
+    spread = 1.96 * float(np.std(diff, ddof=1)) if diff.size > 1 else float("nan")
+    return float(np.mean(diff)) - spread, float(np.mean(diff)) + spread
+
+
 def auroc_below(y_true: Sequence, y_pred: Sequence, cut: float) -> float:
     """AUROC for 'value <= cut', scoring by how far below the cut the prediction falls."""
     y, p = _arrays(y_true, y_pred)
@@ -51,7 +65,9 @@ def auroc_below(y_true: Sequence, y_pred: Sequence, cut: float) -> float:
 
 
 def regression_metrics(y_true: Sequence, y_pred: Sequence, cuts: Sequence[float]) -> Dict[str, float]:
-    values = {"mae": mae(y_true, y_pred), "rmse": rmse(y_true, y_pred), "r2": r2(y_true, y_pred)}
+    low, high = limits_of_agreement(y_true, y_pred)
+    values = {"mae": mae(y_true, y_pred), "rmse": rmse(y_true, y_pred), "r2": r2(y_true, y_pred),
+              "bias": bias(y_true, y_pred), "loa_lo": low, "loa_hi": high}
     for cut in cuts:
         values[f"auroc_below@{cut:g}"] = auroc_below(y_true, y_pred, float(cut))
     return values

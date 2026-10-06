@@ -161,7 +161,7 @@ BASE_SPEC = {"subgroups": ["sex"], "bootstrap_replicates": 20, "figures": False}
 def test_regression_arm_reports_regression_metrics_only(tmp_path):
     _, _, table = run_stage(tmp_path, BASE_SPEC, regression=True)
     reg = table[table["label_def"] == "value"]
-    assert set(reg["metric"]) == {"mae", "rmse", "r2", "auroc_below@40"}
+    assert set(reg["metric"]) == {"mae", "rmse", "r2", "bias", "loa_lo", "loa_hi", "auroc_below@40"}
     assert set(reg["category"]) == {"regression"}
     assert reg["ci_lo"].notna().any()
     assert not (table[table["label_def"] == "primary"]["category"] == "regression").any()

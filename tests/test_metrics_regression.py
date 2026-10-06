@@ -50,5 +50,5 @@ def test_auroc_below_ranks_nothing_when_every_prediction_is_equal():
 
 def test_regression_metrics_are_registered():
     values = regression_metrics(np.array([30.0, 60.0]), np.array([35.0, 55.0]), cuts=(40.0,))
-    assert set(values) == {"mae", "rmse", "r2", "auroc_below@40"}
+    assert set(values) == {"mae", "rmse", "r2", "bias", "loa_lo", "loa_hi", "auroc_below@40"}
     assert category_of("auroc_below@40") == "regression"
