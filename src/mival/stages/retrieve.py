@@ -29,6 +29,9 @@ DERIVED_COLUMNS = {
     "death_within": ("label_event", "label_time_days"),
     "machine_measurement": ("label_pr", "label_qrs", "label_qt"),
 }
+#: Person covariates every derived kind writes, for cards that take them (L2-3).
+COVARIATE_COLUMNS = ("cov_age_years", "cov_sex_male")
+MALE_CONCEPT_ID = 8507
 #: Plausible machine-measured intervals in ms; outside is a device artefact or
 #: a missing-value code (29999, 65535, ...).
 INTERVAL_BOUNDS = {"label_pr": (60.0, 400.0), "label_qrs": (40.0, 250.0), "label_qt": (200.0, 700.0)}
@@ -172,7 +175,7 @@ class RetrieveStage(Stage):
         kept = exclude_derived(frame, spec, ctx.ledger)
         if spec.one_per_person:
             kept = one_per_person(kept, ctx.seed, ctx.ledger)
-        columns = COHORT_INDEX_COLUMNS + DERIVED_COLUMNS[spec.label_kind]
+        columns = COHORT_INDEX_COLUMNS + DERIVED_COLUMNS[spec.label_kind] + COVARIATE_COLUMNS
         index_path = write_table(kept[list(columns)].to_dict("records"),
                                  ctx.layout.artifact(COHORT_INDEX), columns)
         sql_path = write_sql(ctx, sql, params, "ecg_person")
@@ -202,6 +205,9 @@ def derive_labels(frame, spec: RetrieveSpec):
     import pandas
 
     index = pandas.to_datetime(frame["index_datetime"])
+    frame["cov_age_years"] = (index.dt.year - frame["year_of_birth"]).astype(float)
+    gender = frame["gender_concept_id"] if "gender_concept_id" in frame else pandas.Series(np.nan, index=frame.index)
+    frame["cov_sex_male"] = (gender == MALE_CONCEPT_ID).astype(float).where(gender.notna())
     if spec.label_kind == "age_at_ecg":
         frame["label_value"] = (index.dt.year - frame["year_of_birth"]).astype(float)
         return frame

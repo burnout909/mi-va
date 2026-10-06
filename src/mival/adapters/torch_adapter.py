@@ -69,9 +69,13 @@ def _validate_returns(card: ModelCard) -> None:
             )
 
 
-def _module_outputs(handle: "TorchHandle", tensor: Any, module: Any = None) -> Tuple[Optional[Any], Optional[Any]]:
-    """``(logits, features)`` read off the module's return value by the card's ``runtime.returns``."""
-    output = (module or handle.module)(tensor)
+def _module_outputs(handle: "TorchHandle", tensor: Any, module: Any = None, extra: Any = None) -> Tuple[Optional[Any], Optional[Any]]:
+    """``(logits, features)`` read off the module's return value by the card's ``runtime.returns``.
+
+    ``extra`` is the covariate tensor of a card that declares ``covariates``.
+    """
+    target = module or handle.module
+    output = target(tensor) if extra is None else target(tensor, extra)
     outputs = output if isinstance(output, tuple) else (output,)
     names = tuple(handle.card.runtime.get("returns", DEFAULT_RETURNS))
     if len(outputs) > len(names):
@@ -268,8 +272,8 @@ def _build_with_ensemble(card: ModelCard) -> Any:
             super().__init__()
             self.members = torch.nn.ModuleList(modules)
 
-        def forward(self, x):
-            outputs = [member(x) for member in self.members]
+        def forward(self, *inputs):
+            outputs = [member(*inputs) for member in self.members]
             if isinstance(outputs[0], tuple):
                 return tuple(torch.stack(parts).mean(dim=0) for parts in zip(*outputs))
             return torch.stack(outputs).mean(dim=0)
@@ -277,22 +281,9 @@ def _build_with_ensemble(card: ModelCard) -> Any:
     return MeanEnsemble([build_module(card, weight) for weight in card.weights])
 
 
-#: Output types read without a positive_index or value_index check: a risk
-#: score is the module's single output, a mask is decoded to intervals.
-SCORE_FREE_OUTPUT_TYPES = ("risk_score", "segmentation_mask")
-
-
-def _decode_mask(handle: "TorchHandle", outputs: Any) -> np.ndarray:
-    """(B, C, T) per-sample class scores -> (B, 3) PR, QRS, QT in ms."""
-    from mival.decode.intervals import intervals_from_mask, remap_classes
-
-    output = handle.card.output
-    class_axis = int(output.get("class_axis", 1))
-    mask = outputs.argmax(dim=class_axis).detach().cpu().numpy()
-    if output.get("classes"):
-        mask = remap_classes(mask, output["classes"])
-    fs = float(output.get("mask_rate_hz", handle.card.input_contract.sampling_rate_hz))
-    return intervals_from_mask(mask, fs)
+#: Output types read without a positive_index or value_index check and
+#: decoded by ``mival.decode.outputs`` (shared with the keras adapter).
+SCORE_FREE_OUTPUT_TYPES = ("risk_score", "segmentation_mask", "survival_curve", "mtlr")
 
 
 class TorchAdapter(Adapter):
@@ -321,13 +312,13 @@ class TorchAdapter(Adapter):
             features = _module_features(handle, tensor)
         return features.detach().cpu().numpy()
 
-    def forward(self, handle: TorchHandle, batch: np.ndarray) -> np.ndarray:
+    def forward(self, handle: TorchHandle, batch: np.ndarray, covariates: Optional[np.ndarray] = None) -> np.ndarray:
         if handle.head is not None:
             return handle.head.predict(self.features(handle, batch))
-        return self._published_scores(handle, batch)
+        return self._published_scores(handle, batch, covariates)
 
     def _published_scores(
-        self, handle: TorchHandle, batch: np.ndarray
+        self, handle: TorchHandle, batch: np.ndarray, covariates: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """The checkpoint's own score: a positive-class probability, or a regression value.
 
@@ -360,19 +351,22 @@ class TorchAdapter(Adapter):
             )
         arranged = to_model_layout(batch, handle.card.input_contract.layout)
         tensor = torch.from_numpy(np.ascontiguousarray(arranged)).to(handle.device)
+        extra = None
+        if covariates is not None:
+            extra = torch.from_numpy(np.ascontiguousarray(covariates, dtype=np.float32)).to(handle.device)
         with torch.inference_mode():
-            logits, _features = _module_outputs(handle, tensor)
+            logits, _features = _module_outputs(handle, tensor, extra=extra)
         if logits is None:
             raise NotImplementedError(
                 f"{handle.card.model_id!r} returns a representation only; there is no "
                 "published head to read a score from"
             )
-        if kind == "segmentation_mask":
-            return _decode_mask(handle, logits)
-        from mival.decode.transforms import apply_transform
+        if kind in SCORE_FREE_OUTPUT_TYPES or kind == "regression":
+            from mival.decode.outputs import decode_outputs
 
-        scores = self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(np.float64)
-        return apply_transform(scores, handle.card.output.get("transform"))
+            return decode_outputs(handle.card.output, logits.detach().float().cpu().numpy(),
+                                  handle.card.input_contract.sampling_rate_hz)
+        return self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(np.float64)
 
     def _score_from_outputs(self, handle: TorchHandle, outputs: Any) -> Any:
         """Positive-class probability, or the value column for a regression card.

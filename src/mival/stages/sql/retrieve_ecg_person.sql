@@ -8,6 +8,7 @@ select
     i.local_path,
     i.image_occurrence_date                          as index_datetime,
     p.year_of_birth,
+    p.gender_concept_id,
     d.death_date,
     v.last_visit_end
 from {schema}.image_occurrence i

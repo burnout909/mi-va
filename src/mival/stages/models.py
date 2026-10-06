@@ -91,6 +91,8 @@ REGRESSION_LABEL_DEFS = (REGRESSION_LABEL_DEF, "pr", "qrs", "qt")
 SURVIVAL_LABEL_DEF = "survival"
 SURVIVAL_LABEL_COLUMNS = ("label_event", "label_time_days")
 #: Continuous label columns (read as float); every other one is a 0/1 outcome.
+#: cohort_index columns carrying a model's non-waveform inputs: ``cov_<name>``.
+COVARIATE_PREFIX = "cov_"
 CONTINUOUS_LABEL_COLUMNS = ("label_value", "label_time_days", "label_pr", "label_qrs", "label_qt")
 #: Which card output.type an inference_only arm of each kind can score through.
 _INFERENCE_OUTPUT_TYPES = {
@@ -455,7 +457,15 @@ def _predict(
     for start in range(0, len(records), batch_size):
         window = records[start : start + batch_size]
         batch = loader([record.tensor_path for record in window])
-        probs = np.asarray(forward(handle, batch), dtype=np.float64)
+        names = _covariates(card)
+        if names:
+            covariates = np.array(
+                [[record.labels[COVARIATE_PREFIX + name] for name in names] for record in window],
+                dtype=np.float32,
+            )
+            probs = np.asarray(forward(handle, batch, covariates=covariates), dtype=np.float64)
+        else:
+            probs = np.asarray(forward(handle, batch), dtype=np.float64)
         if column is not None:
             probs = probs[:, column]
         probs = probs.ravel()
@@ -599,7 +609,10 @@ class ModelsStage(Stage):
                     f"{arm.training_mode!r}"
                 )
 
-        records, n_in = self._collect(ctx, wanted, spec)
+        covariate_columns = sorted({
+            COVARIATE_PREFIX + name for arm in spec.arms for name in _covariates(cards[arm.model_id][0])
+        })
+        records, n_in = self._collect(ctx, wanted, spec, covariate_columns)
 
         outputs: List[Path] = []
         run_keys: List[RunKey] = []
@@ -658,7 +671,8 @@ class ModelsStage(Stage):
     # -- inputs ------------------------------------------------------------
 
     def _collect(
-        self, ctx: StageContext, wanted: Iterable[str], spec: ModelsSpec
+        self, ctx: StageContext, wanted: Iterable[str], spec: ModelsSpec,
+        covariate_columns: Sequence[str] = (),
     ) -> Tuple[List[Record], int]:
         """Join preprocess_index with the split and the labels, dropping the rest.
 
@@ -699,7 +713,8 @@ class ModelsStage(Stage):
         # Every arm's label column must be present for a record to be kept, so
         # that all arms are compared on one cohort rather than on per-arm
         # cohorts whose denominators silently differ.
-        needed = sorted({column for arm in spec.arms for column in arm.required_label_columns})
+        needed = sorted({column for arm in spec.arms for column in arm.required_label_columns}
+                        | set(covariate_columns))
         # label_value is optional on a cohort, so a regression arm run against a
         # cohort that has none would otherwise exclude every record one by one
         # and surface as "no dev records", which names the wrong problem.
@@ -754,7 +769,8 @@ class ModelsStage(Stage):
                     tensor_path=tensor_path,
                     split=split,
                     fold=fold,
-                    labels={column: record_labels.get(column) for column in LABEL_COLUMNS},
+                    labels={column: record_labels.get(column)
+                            for column in tuple(LABEL_COLUMNS) + tuple(covariate_columns)},
                 )
             )
         return kept, len(rows)
@@ -1148,12 +1164,20 @@ _REGRESSION_LABEL_COLUMN = "label_" + REGRESSION_LABEL_DEF
 
 def _labels_from(frame: Any) -> Dict[str, Dict[str, Optional[float]]]:
     labels: Dict[str, Dict[str, Optional[float]]] = {}
+    covariates = [column for column in frame.columns if str(column).startswith(COVARIATE_PREFIX)]
     for row in frame.to_dict("records"):
-        labels[str(row["image_occurrence_id"])] = {
+        values = {
             column: (_as_float if column in CONTINUOUS_LABEL_COLUMNS else _as_int)(row.get(column))
             for column in LABEL_COLUMNS
         }
+        values.update({column: _as_float(row.get(column)) for column in covariates})
+        labels[str(row["image_occurrence_id"])] = values
     return labels
+
+
+def _covariates(card: ModelCard) -> Tuple[str, ...]:
+    """Non-waveform inputs the card's module takes after the ECG (L2-3), in order."""
+    return tuple(str(name) for name in (card.raw.get("x-mival", {}).get("covariates") or ()))
 
 
 def _absolute(path: Any, root: Path) -> Path:

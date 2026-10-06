@@ -118,3 +118,43 @@ def test_regression_arm_without_its_label_column_names_it(tmp_path):
     stage, ctx = make_context(tmp_path, make_spec(registry, [arm("seg", label_def="qt")]), inputs, SegAdapter())
     with pytest.raises(ValueError, match="label_qt"):
         stage.run(ctx)
+
+
+class CovariateAdapter(FakeAdapter):
+    """Returns score + 10 * first covariate, and records the covariates it saw."""
+
+    def forward(self, handle, batch, covariates=None):
+        self.covariates_seen = None if covariates is None else np.asarray(covariates)
+        scores = np.asarray(batch, dtype=np.float64).mean(axis=(1, 2))
+        return scores + (0.0 if covariates is None else 10.0 * np.asarray(covariates)[:, 0])
+
+
+def test_card_covariates_reach_the_adapter(tmp_path):
+    import json
+
+    registry = tmp_path / "registry"
+    path = write_card(registry, "risk", modes=["inference_only"], output={"type": "risk_score", "n_outputs": 1})
+    body = json.loads(path.read_text())
+    body["x-mival"]["covariates"] = ["age_years", "sex_male"]
+    path.write_text(json.dumps(body))
+    inputs = _with_columns(build_inputs(tmp_path, model_ids=("risk",)), label_event=lambda i: i % 2,
+                           label_time_days=lambda i: 100.0, cov_age_years=lambda i: float(i), cov_sex_male=lambda i: 1.0)
+    adapter = CovariateAdapter()
+    _result, ctx = run_stage(tmp_path, make_spec(registry, [arm("risk", label_def="survival")]), inputs, adapter)
+    frame = _predictions(ctx)
+    assert adapter.covariates_seen is not None and adapter.covariates_seen.shape[1] == 2
+    assert (frame["pred_value"] > 1.0).any()
+
+
+def test_missing_covariate_excludes_the_record(tmp_path):
+    import json
+
+    registry = tmp_path / "registry"
+    path = write_card(registry, "risk", modes=["inference_only"], output={"type": "risk_score", "n_outputs": 1})
+    body = json.loads(path.read_text())
+    body["x-mival"]["covariates"] = ["age_years"]
+    path.write_text(json.dumps(body))
+    inputs = _with_columns(build_inputs(tmp_path, model_ids=("risk",)), label_event=lambda i: i % 2,
+                           label_time_days=lambda i: 100.0, cov_age_years=lambda i: None if i == 0 else 50.0)
+    _result, ctx = run_stage(tmp_path, make_spec(registry, [arm("risk", label_def="survival")]), inputs, CovariateAdapter())
+    assert "img0" not in set(_predictions(ctx)["image_occurrence_id"])

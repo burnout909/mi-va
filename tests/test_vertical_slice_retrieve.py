@@ -132,3 +132,11 @@ def test_measurement_kind_honours_one_per_person(tmp_path):
     execute(stage, ctx)
     index = read_table(ctx.layout.artifact(COHORT_INDEX))
     assert index["person_id"].is_unique and len(index) == 2
+
+
+def test_derived_kinds_write_age_and_sex_covariates(tmp_path):
+    rows = [dict(ecg(1, 10, date(2180, 1, 1), birth=2120, last_visit=date(2180, 6, 1)), gender_concept_id=8507),
+            dict(ecg(2, 11, date(2180, 1, 1), birth=2150, last_visit=date(2180, 6, 1)), gender_concept_id=8532)]
+    index, _ = run(tmp_path, spec(tmp_path, "death_within"), rows)
+    assert index["cov_age_years"].tolist() == [60.0, 30.0]
+    assert index["cov_sex_male"].tolist() == [1.0, 0.0]
