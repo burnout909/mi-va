@@ -18,6 +18,7 @@ import numpy as np
 
 from mival.adapters._training import FitData, FitHParams, LinearHead, TrainingError
 from mival.adapters.base import Adapter, to_model_layout
+from mival.decode.outputs import DECODED_TYPES
 from mival.modelcard import ModelCard
 
 
@@ -60,6 +61,24 @@ def pool_ensemble(
     return pooled[:, positive_index].astype(np.float64)
 
 
+def _select_head(member: Any, raw: Any, head: Optional[str]) -> np.ndarray:
+    """One output of a multi-output model, by the card's ``output.head`` name."""
+    if isinstance(raw, dict):
+        if head is None:
+            raise ValueError(f"model returns heads {sorted(raw)}; the card must name output.head")
+        return np.asarray(raw[head])
+    if isinstance(raw, (list, tuple)):
+        names = list(getattr(member, "output_names", []) or [])
+        if head is None:
+            if len(raw) != 1:
+                raise ValueError(f"model returns {len(raw)} heads {names}; the card must name output.head")
+            return np.asarray(raw[0])
+        if head not in names:
+            raise ValueError(f"output.head {head!r} is not one of the model's heads {names}")
+        return np.asarray(raw[names.index(head)])
+    return np.asarray(raw)
+
+
 class KerasAdapter(Adapter):
     name = "keras"
 
@@ -67,7 +86,9 @@ class KerasAdapter(Adapter):
         # The archived PROPHECG runtime predates this instance's CUDA toolkit,
         # so the CPU pin must win even if the surrounding process exported a
         # device. setdefault would silently leave an inherited value in place.
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        if card.runtime.get("device") != "cuda":
+            # A card whose runtime says cuda (the keras 3 environment) keeps the GPU.
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
         import tensorflow as tf
 
@@ -92,6 +113,11 @@ class KerasAdapter(Adapter):
             ]
             return pool_ensemble(outputs, self._pooling(handle), 1)
         arranged = to_model_layout(batch, handle.card.input_contract.layout)
+        kind = handle.card.output.get("type")
+        if kind in DECODED_TYPES and not (
+            kind == "regression" and self._pooling(handle) == "mean_probability"
+        ):
+            return self._decoded(handle, arranged)
         outputs = [
             np.asarray(member(arranged, training=False)) for member in handle.members
         ]
@@ -106,6 +132,25 @@ class KerasAdapter(Adapter):
         else:
             column = handle.card.output["positive_index"]
         return pool_ensemble(outputs, self._pooling(handle), column)
+
+    def _decoded(self, handle: KerasHandle, arranged: np.ndarray) -> np.ndarray:
+        """Head by name, optional framing, member mean, then the shared decoder."""
+        from mival.decode.frames import predict_in_frames
+        from mival.decode.outputs import decode_outputs
+
+        output = handle.card.output
+        frame = output.get("frame_samples")
+        fs = handle.card.input_contract.sampling_rate_hz
+        raws = []
+        for member in handle.members:
+            def predict(x, member=member):
+                return _select_head(member, member(x, training=False), output.get("head"))
+
+            raw = predict_in_frames(predict, arranged, int(frame)) if frame else predict(arranged)
+            raws.append(np.asarray(raw, dtype=np.float64))
+        if output.get("type") == "segmentation_mask":
+            return decode_outputs(output, np.mean(np.stack(raws), axis=0), fs)
+        return np.mean(np.stack([decode_outputs(output, raw, fs) for raw in raws]), axis=0)
 
     def _pooling(self, handle: KerasHandle) -> str:
         return handle.card.ensemble.get("method", "none")
