@@ -1,0 +1,34 @@
+{
+  "model_id": "hrnetv2-delineation",
+  "Name": "MedicalAI-DP HRNetV2 ECG delineation",
+  "Summary": "Single-lead HRNetV2 emitting per-sample multi-label P/QRS/T logits.",
+  "Link": "https://huggingface.co/spaces/MedicalAI-DP/ECG_Delineation",
+  "Descriptors": {"Version": null, "References": []},
+  "Model properties": {"Input": "single-lead ECG, 10 seconds at 500 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "builder": {"module": "res.impl.HRNetV2:HRNetV2", "kwargs": {}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["II"], "sampling_rate_hz": 500, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "per_lead_zscore", "gain": 0.1, "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "sigmoid", "n_outputs": 3, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["ludb"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (res/models/hrnetv2/weights.pth, 22.4 MB, sha256 starts 4d4d7721), builder kwargs, Space revision. No paper. Apache-2.0 per the Space README. Normalisation inferred from demo inputs, not documented: per-lead (x-mean)/std then x0.1; gain 0.1 is applied after z-score here only if the compiler orders it that way (unverified). Ran on LUDB record 1 (QRS onsets 643, 1325, 1979; search 2026-10-06). x-mival.output is the nearest existing value and is wrong in meaning."
+  },
+  "x-mival-proposed": {
+    "per_lead": {"leads_accepted": 1, "apply_to": "each lead independently; 12 leads go in as batch 12"},
+    "output": {"kind": "per_sample_multilabel", "shape": [3, 5000], "channels": ["P", "QRS", "T"], "activation": "none (raw logits)"},
+    "decode": {"thresholds_on_logits": [0.00116, 0.1509, -0.5879], "postprocess_min_run_samples": [5, 25, 25, 25, 15, 25]},
+    "scaling_order": "zscore then multiply by 0.1"
+  }
+}

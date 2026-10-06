@@ -1,0 +1,36 @@
+{
+  "model_id": "semisegecg-resnet18",
+  "Name": "SemiSegECG ResNet-18 + FCN (supervised, cross-domain)",
+  "Summary": "Single-lead ResNet-18 segmenter emitting per-sample background/P/QRS/T.",
+  "Link": "https://github.com/vuno/semi-seg-ecg",
+  "Descriptors": {"Version": null, "References": ["doi:10.1145/3746252.3760790", "arXiv:2507.18323"]},
+  "Model properties": {"Input": "single-lead ECG, 10 seconds at 250 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model",
+    "builder": {"module": null, "kwargs": {"num_leads": 1}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["II"], "sampling_rate_hz": 250, "duration_s": 10, "unit": "mV",
+      "filters": [{"kind": "highpass", "cutoff_hz": 0.67, "order": 1}, {"kind": "lowpass", "cutoff_hz": 40, "order": 1}],
+      "scaling": "global_zscore", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "softmax", "n_outputs": 4, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": "torch==1.11.0", "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["ludb", "qtdb", "isp", "zhejiang", "ptb-xl"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (Google Drive id 1uGO-YHayjO4bWRnK4MzT0CMgaoUOgHB0, 48.6 MB, MeanIoU 0.726), filter orders, builder (checkpoint config names resnet18_seg, repo config resnet18). License conflict: LICENSE is Apache-2.0, README says all rights reserved. 250 Hz inferred from the filter config. Per-record z-score over (lead, time) = global_zscore for one lead. x-mival.output is the nearest existing value and is wrong in meaning."
+  },
+  "x-mival-proposed": {
+    "per_lead": {"leads_accepted": 1, "apply_to": "each lead independently"},
+    "output": {"kind": "per_sample_mask", "shape": [4, 2500], "classes": ["none", "P", "QRS", "T"], "activation": "softmax over dim 1", "resolution": "input rate (decoder interpolated)"},
+    "decode": {"mask": "argmax", "intervals": "notebooks/perf_eval.ipynb compute_numerics -> median PR, QRS, QT in ms"},
+    "license_conflict": ["Apache-2.0 (LICENSE)", "all rights reserved (README)"]
+  }
+}
