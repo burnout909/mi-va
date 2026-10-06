@@ -1,0 +1,64 @@
+study_id: mortality-draft
+site: dicom-miva
+seed: 20261006
+
+stages:
+  retrieve:
+    dsn_env: /data/mi-val/secrets/micdm.env
+    schema: cdm
+    label_concept_id: null
+    modality_concept_id: 4145308
+    local_path_root: /scratch/mi-val/dicom
+    require_local_file: true
+    window_days: 0
+    window_days_sens2: 0
+    implausible_below: 0
+    x-proposed:
+      label_source: {kind: time_to_event, event_table: death, event_date: death_date,
+                     censor_at: "last observation_period_end_date", time_origin: index_datetime, unit: days}
+      columns: [event_observed, time_to_event_days]
+      note: >-
+        RetrieveSpec produces label_value and binary label_* columns from one
+        measurement near the ECG. Survival needs an event flag and a follow-up
+        time with censoring, neither of which the cohort_index has.
+
+  profile:
+    test_fraction: 0.2
+    n_folds: 5
+    stratify_on: label_primary
+    min_test_positives: 100
+    x-proposed:
+      stratify_on: event_observed
+
+  preprocess:
+    loader: dicom
+    registry: registry/drafts
+    allow_upsample: false
+    pad_policy: reject
+
+  models:
+    registry: registry/drafts
+    cohort_sources: [mimic-iv-ecg]
+    batch_size: 64
+    arms:
+      - {model_id: ml4h-ecg2af, training_mode: inference_only, label_def: primary}
+      - {model_id: ml4h-ecg2hf, training_mode: inference_only, label_def: primary}
+      - {model_id: ml4h-ecg2stroke, training_mode: inference_only, label_def: primary}
+      - {model_id: cavalab-deepsurv-code15, training_mode: inference_only, label_def: value}
+      - {model_id: cavalab-mtlr-code15, training_mode: inference_only, label_def: primary}
+    x-proposed:
+      label_def: survival
+      note: >-
+        label_def must name an existing label column (models.py:216), so every
+        arm here borrows primary or value. inference_only also requires the
+        card's output.type to match regression vs classification
+        (models.py:771); a survival arm is neither.
+
+  evaluate:
+    outcomes: {primary: null}
+    bootstrap_replicates: 2000
+    figures: true
+    x-proposed:
+      metrics: [harrell_c_index, uno_c_index, time_dependent_auc_at_horizon, brier_at_horizon]
+      horizons_years: [1, 5, 10]
+      note: "evaluate has binary and regression categories only"

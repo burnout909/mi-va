@@ -1,0 +1,35 @@
+{
+  "model_id": "cavalab-deepsurv-code15",
+  "Name": "cavalab Code-15 ResNet DeepSurv (no demographics)",
+  "Summary": "Ribeiro ResNet1d with a fusion MLP emitting one Cox log-risk for all-cause mortality.",
+  "Link": "https://github.com/cavalab/ecg-survival-benchmark",
+  "Descriptors": {"Version": "zenodo:16877773", "References": ["arXiv:2406.17002", "pmid:41408648"]},
+  "Model properties": {"Input": "12-lead surface ECG, middle 7 s at 400 Hz zero-padded to 4096 samples"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model_state_dict",
+    "builder": {"module": null, "kwargs": {}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 400, "duration_s": 7, "unit": "mV", "filters": [],
+      "scaling": "per_lead_zscore", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "regression", "n_outputs": 1},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["code-15"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha ('Code15 ResNet DeepSurv no Dem.pt', 30.5 MB), builder, input unit (CODE-15 native scale; check mV vs 1e-4 V). Code GPL-3.0, weights CC-BY-4.0. Per-lead z-score uses the checkpoint's stored NM/NS, not the cohort's own statistics. x-mival.output 'regression' is the nearest existing value: a log-risk read as a continuous target, wrong in meaning. No baseline hazard is shipped."
+  },
+  "x-mival-proposed": {
+    "output": {"kind": "cox_log_risk", "baseline_hazard": "not shipped; fit (Breslow) on a cohort = recalibration, or report discrimination only"},
+    "normalization": {"op": "per_lead_zscore", "statistics_from": "checkpoint keys NM, NS"},
+    "crop_and_pad": {"keep": "middle 2800 samples (7 s)", "pad": "648 zeros each side", "to_samples": 4096}
+  }
+}

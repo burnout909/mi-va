@@ -1,0 +1,44 @@
+{
+  "model_id": "ml4h-ecg2af",
+  "Name": "ml4h ECG2AF (2024 five-head)",
+  "Summary": "12-lead network with incident-AF and death survival heads plus sex, age and prevalent-AF heads.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2AF",
+  "Descriptors": {"Version": "ecg2af_quintuplet_v2024_01_13", "References": ["doi:10.1161/CIRCULATIONAHA.121.057480"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 500 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 500, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "global_zscore", "layout": "time_lead", "dtype": "float32"
+    },
+    "output": {"type": "sigmoid", "n_outputs": 50, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": "keras==3.9.0", "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["mgh"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (ecg2af_quintuplet_v2024_01_13.keras, 43.8 MB, Git LFS), python version. Keras 3 .keras zip format per metadata.json; the project keras env is 2.7. GPL-3.0 (repo-level). The x-mival.output above is the nearest existing value for the death head alone and is wrong in meaning: a sigmoid over 50 units read as class probabilities. The death head was added in a 2025 update and has no paper of its own."
+  },
+  "x-mival-proposed": {
+    "heads": [
+      {"name": "output_survival_curve_af_survival_curve", "shape": [50], "activation": "sigmoid", "kind": "survival_curve", "endpoint": "incident AF", "intervals": 25, "window_days": 1825},
+      {"name": "output_sex_categorical", "shape": [2], "activation": "softmax", "kind": "categorical", "classes": ["female", "male"]},
+      {"name": "output_death_event_survival_curve", "shape": [50], "activation": "sigmoid", "kind": "survival_curve", "endpoint": "all-cause death", "intervals": 25, "window_days": 3650},
+      {"name": "output_age_in_days_continuous", "shape": [1], "activation": "linear", "kind": "regression", "unit": "unverified"},
+      {"name": "output_af_in_read_categorical", "shape": [2], "activation": "softmax", "kind": "categorical", "classes": ["no_af", "af_in_read"]}
+    ],
+    "use_head": "output_death_event_survival_curve",
+    "survival_curve_decoding": {
+      "meaningful_units": "first 25 of 50",
+      "unit_meaning": "conditional probability of surviving interval i given survival to its start",
+      "survival": "S(t_k) = prod_{i<=k} p_i",
+      "bin_days": "window_days / intervals (code: 73 for AF, 146 for death); README writes 1 + window_days // intervals",
+      "risk_at_horizon": "1 - S(horizon)"
+    }
+  }
+}

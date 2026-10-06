@@ -1,0 +1,39 @@
+{
+  "model_id": "ml4h-ecg2hf",
+  "Name": "ml4h ECG2HF (five-head)",
+  "Summary": "12-lead network with two incident-HF survival heads, a death survival head, and sex and age heads.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2HF",
+  "Descriptors": {"Version": "ecg_5000_hf_quintuplet_dropout_v2023_04_17", "References": ["doi:10.1161/CIRCHEARTFAILURE.125.013927"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 500 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 500, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "global_zscore", "layout": "time_lead", "dtype": "float32"
+    },
+    "output": {"type": "sigmoid", "n_outputs": 50, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": "keras==3", "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["mgh"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (33.2 MB .keras), exact keras version. Broad Academic Software License: academic/non-profit use only, acknowledgement required, covers model outputs. Tested at MGH, BWH and BIDMC (MIMIC's source hospital) in the paper, but not trained on MIMIC. x-mival.output is the nearest existing value and is wrong in meaning (see ml4h-ecg2af)."
+  },
+  "x-mival-proposed": {
+    "heads": [
+      {"name": "output_is_male_categorical", "shape": [2], "activation": "softmax", "kind": "categorical"},
+      {"name": "output_hf_primary_event_survival_curve", "shape": [50], "activation": "sigmoid", "kind": "survival_curve", "endpoint": "HF by primary ICD", "intervals": 25, "window_days": 3650},
+      {"name": "output_hf_nlp_event_survival_curve", "shape": [50], "activation": "sigmoid", "kind": "survival_curve", "endpoint": "HF by NLP (primary task)", "intervals": 25, "window_days": 3650},
+      {"name": "output_death_event_survival_curve", "shape": [50], "activation": "sigmoid", "kind": "survival_curve", "endpoint": "all-cause death", "intervals": 25, "window_days": 3650},
+      {"name": "output_age_in_days_continuous", "shape": [1], "activation": "linear", "kind": "regression", "unit": "unverified"}
+    ],
+    "use_head": "output_death_event_survival_curve",
+    "survival_curve_decoding": {"same_as": "ml4h-ecg2af", "bin_days": 146},
+    "license_scope": "academic only; applies to outputs"
+  }
+}
