@@ -118,3 +118,17 @@ def test_profile_stratify_none(tmp_path):
     execute(stage, ctx)
     split = read_table(ctx.layout.artifact("cohort_split.parquet"))
     assert len(split) == 50 and (split["split"] == "test").sum() == 10
+
+
+def test_measurement_kind_honours_one_per_person(tmp_path):
+    from test_stage_retrieve import fake_query, row
+
+    rows = [row(i, 10 + i % 2, 1 + i, 4.0 + i / 10, 0) for i in range(1, 7)]
+    stage = RetrieveStage(query=fake_query({1: rows, 2: rows}))
+    body = {"dsn_env": "/x", "modality_concept_id": 4145308, "label_concept_id": 3023103,
+            "local_path_root": str(tmp_path / "dicom"), "require_local_file": False,
+            "window_days": 1, "window_days_sens2": 2, "implausible_below": 1.5, "one_per_person": True}
+    ctx = prepare(stage, "s", "site", body, {}, tmp_path / "runs", seed=3)
+    execute(stage, ctx)
+    index = read_table(ctx.layout.artifact(COHORT_INDEX))
+    assert index["person_id"].is_unique and len(index) == 2

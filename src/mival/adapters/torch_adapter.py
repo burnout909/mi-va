@@ -112,14 +112,14 @@ def _as_tensor(array: np.ndarray, device: str, dtype: Any) -> Any:
     return torch.from_numpy(np.ascontiguousarray(array)).to(device=device, dtype=dtype)
 
 
-def build_module(card: ModelCard) -> Any:
+def build_module(card: ModelCard, weight: Optional[Mapping[str, Any]] = None) -> Any:
     """Construct the module the card declares and load its weights into it."""
     import sys
 
     import torch
 
     ext = card.raw["x-mival"]
-    uri = card.weights[0]["uri"]
+    uri = (weight or card.weights[0])["uri"]
     weights_format = ext.get("weights_format", "checkpoint")
     code_path = ext.get("code_path")
     if code_path and code_path not in sys.path:
@@ -240,6 +240,43 @@ def _check_n_outputs(card: ModelCard, state: Dict[str, Any]) -> None:
         raise ValueError(f"card declares {declared} outputs but the checkpoint has {actual}")
 
 
+#: ``ensemble.method`` values that average the members' raw outputs.
+MEAN_ENSEMBLE_METHODS = ("mean", "mean_regression", "mean_probability")
+
+
+def _build_with_ensemble(card: ModelCard) -> Any:
+    """One module, or the mean of one module per weight file (L2-14)."""
+    import torch
+
+    method = (card.ensemble or {}).get("method", "none")
+    members = int((card.ensemble or {}).get("members", 1))
+    if len(card.weights) == 1 and members <= 1:
+        return build_module(card)
+    if method not in MEAN_ENSEMBLE_METHODS:
+        raise ValueError(
+            f"{card.model_id!r} lists {len(card.weights)} weights with ensemble.method "
+            f"{method!r}; the torch adapter averages members for {list(MEAN_ENSEMBLE_METHODS)}"
+        )
+    if members != len(card.weights):
+        raise ValueError(
+            f"{card.model_id!r}: ensemble.members is {members} but the card lists "
+            f"{len(card.weights)} weights"
+        )
+
+    class MeanEnsemble(torch.nn.Module):
+        def __init__(self, modules):
+            super().__init__()
+            self.members = torch.nn.ModuleList(modules)
+
+        def forward(self, x):
+            outputs = [member(x) for member in self.members]
+            if isinstance(outputs[0], tuple):
+                return tuple(torch.stack(parts).mean(dim=0) for parts in zip(*outputs))
+            return torch.stack(outputs).mean(dim=0)
+
+    return MeanEnsemble([build_module(card, weight) for weight in card.weights])
+
+
 #: Output types read without a positive_index or value_index check: a risk
 #: score is the module's single output, a mask is decoded to intervals.
 SCORE_FREE_OUTPUT_TYPES = ("risk_score", "segmentation_mask")
@@ -265,7 +302,7 @@ class TorchAdapter(Adapter):
         import torch
 
         _validate_returns(card)
-        module = build_module(card)
+        module = _build_with_ensemble(card)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         return TorchHandle(module=module.to(device).eval(), device=device, card=card)
 
@@ -332,9 +369,10 @@ class TorchAdapter(Adapter):
             )
         if kind == "segmentation_mask":
             return _decode_mask(handle, logits)
-        return self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(
-            np.float64
-        )
+        from mival.decode.transforms import apply_transform
+
+        scores = self._score_from_outputs(handle, logits).detach().cpu().numpy().astype(np.float64)
+        return apply_transform(scores, handle.card.output.get("transform"))
 
     def _score_from_outputs(self, handle: TorchHandle, outputs: Any) -> Any:
         """Positive-class probability, or the value column for a regression card.

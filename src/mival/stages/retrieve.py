@@ -145,6 +145,8 @@ class RetrieveStage(Stage):
         frame["local_path"] = frame["local_path"].map(lambda p: resolve_local_path(p, spec.local_path_root))
 
         kept = exclude(frame, spec, ctx.ledger)
+        if spec.one_per_person:
+            kept = one_per_person(kept, ctx.seed, ctx.ledger)
         kept = attach_labels(kept, spec)
         index_path = write_table(kept[list(COHORT_INDEX_COLUMNS)].to_dict("records"),
                                  ctx.layout.artifact(COHORT_INDEX), COHORT_INDEX_COLUMNS)
