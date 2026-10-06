@@ -301,7 +301,8 @@ LVEF study가 `code_path` 루트를 셋 갖고 있어서 드러났다.
 ### L2-7 · 출력이 레코드당 값 하나뿐
 
 `output.type`은 softmax, logits, sigmoid, regression 넷이고 모두 ECG 한 건에 점수 하나를
-낸다 (`src/mival/adapters/torch_adapter.py:325-334`). 생존 모델은 구간 조건부 생존확률 곡선,
+낸다 (`src/mival/adapters/torch_adapter.py:325-334`). keras adapter는 `output.type`을 보지 않고 열 하나를 그대로
+읽어, `positive_index`가 없으면 오류 없이 모양이 틀린 배열을 낸다 (`keras_adapter.py:60`). 생존 모델은 구간 조건부 생존확률 곡선,
 Cox log-risk, MTLR logit을 내고, 분할 모델은 샘플별 마스크를 낸다. ml4h 세 모델과 OpenECG는
 head가 여럿이라 어느 head를 쓸지도 적을 자리가 없다. inference_only는 회귀가 아니면 분류로
 가므로 (`src/mival/stages/models.py:771`) 생존·분할 arm이 갈 곳이 없다.
@@ -330,7 +331,8 @@ head가 여럿이라 어느 head를 쓸지도 적을 자리가 없다. inference
 compiler는 단위 → 필터 → resample → lead → 길이 → gain → 정규화 순서로 고정이다
 (`src/mival/compiler.py`). 초안에서 표현되지 않은 것: lead를 하나씩 넣는 모델(12-lead 한 건을
 single lead 12건으로), 4-D 입력 (B,1,T,L), 2.56 s 창으로 나눠 이어 붙이기, crop·pad 위치
-(compiler가 anchor를 넘기지 않아 항상 앞에서 자르고 끝에 붙임, `compiler.py:109`, `:117`),
+(compiler가 anchor를 넘기지 않아 항상 앞에서 자르고 끝에 붙임, `compiler.py:109`, `:117`. Crop은
+`center`가 있지만 Pad에는 가운데 패딩이 없음, `ops.py:149`),
 z-score 뒤 ×0.1 (gain이 정규화 전이라 사라짐, `compiler.py:121-125`), rank 정규화, z-score 뒤
 median 빼기, wavelet denoising, `dtype: int32` (기록만 되고 적용 안 됨).
 
