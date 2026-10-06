@@ -23,6 +23,8 @@ from mival.stages.models import (
     PREDICTION_COLUMNS,
     PRIMARY_THRESHOLD_POLICY,
     REGRESSION_LABEL_DEF,
+    REGRESSION_LABEL_DEFS,
+    SURVIVAL_LABEL_DEF,
     THRESHOLD_POLICIES,
 )
 from mival.threshold import SENS95_TARGET_SENSITIVITY
@@ -188,8 +190,13 @@ def arm_axes() -> Tuple[str, ...]:
 
 
 def is_regression(key: RunKey) -> bool:
-    """A regression arm reads ``label_value``/``pred_value`` and has no threshold."""
-    return key.label_def == REGRESSION_LABEL_DEF
+    """A regression arm reads ``label_<def>``/``pred_value`` and has no threshold."""
+    return key.label_def in REGRESSION_LABEL_DEFS
+
+
+def is_survival(key: RunKey) -> bool:
+    """A survival arm reads ``label_event``/``label_time_days``/``pred_value``."""
+    return key.label_def == SURVIVAL_LABEL_DEF
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +262,7 @@ def fit_operating_thresholds(
     thresholds: Dict[Tuple[str, ...], float] = {}
     for key, _ in group_by_run_key(predictions):
         arm = arm_of(key)
-        if is_regression(key):
+        if is_regression(key) or is_survival(key):
             thresholds[arm] = float("nan")
             continue
         if arm in thresholds:

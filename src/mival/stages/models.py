@@ -63,6 +63,11 @@ PREDICTION_COLUMNS = (
     "label_sens2",
     "label_sens3",
     "label_value",
+    "label_event",
+    "label_time_days",
+    "label_pr",
+    "label_qrs",
+    "label_qt",
     "prob",
     "logit",
     "pred_value",
@@ -78,6 +83,22 @@ PREDICTION_COLUMNS = (
 #: label names the task). A regression arm reads ``label_value`` and writes
 #: ``pred_value``; ``prob``/``logit`` are null and no threshold is fit.
 REGRESSION_LABEL_DEF = "value"
+#: Every label_def scored as a continuous value against ``label_<def>``. The
+#: interval ones are read off a segmentation card's decoded output.
+REGRESSION_LABEL_DEFS = (REGRESSION_LABEL_DEF, "pr", "qrs", "qt")
+#: A survival arm reads ``label_event`` and ``label_time_days`` and writes a
+#: risk score to ``pred_value``; it has no threshold.
+SURVIVAL_LABEL_DEF = "survival"
+SURVIVAL_LABEL_COLUMNS = ("label_event", "label_time_days")
+#: Continuous label columns (read as float); every other one is a 0/1 outcome.
+CONTINUOUS_LABEL_COLUMNS = ("label_value", "label_time_days", "label_pr", "label_qrs", "label_qt")
+#: Which card output.type an inference_only arm of each kind can score through.
+_INFERENCE_OUTPUT_TYPES = {
+    "binary": ("logits", "softmax", "sigmoid"),
+    "value": ("regression",),
+    "interval": ("regression", "segmentation_mask"),
+    "survival": ("risk_score",),
+}
 
 #: Hyperparameters for a regression arm are selected by negative dev MAE:
 #: AUROC has no meaning once the target is continuous, and smaller error is
@@ -112,9 +133,7 @@ LABEL_COLUMNS = tuple(name for name in PREDICTION_COLUMNS if name.startswith("la
 #: The 0/1 label columns. Every cohort carries these; ``label_value`` is the
 #: regression target and a classification-only cohort has no reason to hold it,
 #: so it is read as NaN when absent rather than demanded of every cohort_index.
-BINARY_LABEL_COLUMNS = tuple(
-    name for name in LABEL_COLUMNS if name != "label_" + REGRESSION_LABEL_DEF
-)
+BINARY_LABEL_COLUMNS = ("label_primary", "label_sens1", "label_sens2", "label_sens3")
 
 #: ``label_def`` is a run_key axis (spec §3.4) whose values name label columns.
 DEFAULT_LABEL_DEF = "primary"
@@ -186,11 +205,27 @@ class Arm:
 
     @property
     def label_column(self) -> str:
-        return "label_" + self.label_def
+        return "label_event" if self.is_survival else "label_" + self.label_def
+
+    @property
+    def required_label_columns(self) -> Tuple[str, ...]:
+        return SURVIVAL_LABEL_COLUMNS if self.is_survival else (self.label_column,)
 
     @property
     def is_regression(self) -> bool:
-        return self.label_def == REGRESSION_LABEL_DEF
+        return self.label_def in REGRESSION_LABEL_DEFS
+
+    @property
+    def is_survival(self) -> bool:
+        return self.label_def == SURVIVAL_LABEL_DEF
+
+    @property
+    def kind(self) -> str:
+        if self.is_survival:
+            return "survival"
+        if self.label_def == REGRESSION_LABEL_DEF:
+            return "value"
+        return "interval" if self.is_regression else "binary"
 
     @property
     def objective(self) -> str:
@@ -214,7 +249,13 @@ class Arm:
                 f"{list(TRAINING_MODES)}"
             )
         label_def = str(body.get("label_def", default_label_def))
-        if "label_" + label_def not in LABEL_COLUMNS:
+        if label_def == SURVIVAL_LABEL_DEF:
+            if training_mode != "inference_only":
+                raise ValueError(
+                    f"{where}: a survival arm scores the card's published risk and supports "
+                    f"inference_only only, not {training_mode!r}"
+                )
+        elif "label_" + label_def not in LABEL_COLUMNS:
             raise ValueError(
                 f"{where}: label_def {label_def!r} names no label column; available "
                 f"columns are {list(LABEL_COLUMNS)}"
@@ -402,14 +443,22 @@ def _predict(
     loader: Callable[[Sequence[str]], np.ndarray],
     batch_size: int,
     card: ModelCard,
+    column: Optional[int] = None,
 ) -> np.ndarray:
-    """The adapter's score per record, in order: a probability, or a regression value."""
+    """The adapter's score per record, in order: a probability, or a regression value.
+
+    ``column`` picks one value out of a per-record vector (a segmentation
+    card's decoded PR, QRS and QT).
+    """
     forward = _adapter_method(adapter, "forward", card)
     chunks: List[np.ndarray] = []
     for start in range(0, len(records), batch_size):
         window = records[start : start + batch_size]
         batch = loader([record.tensor_path for record in window])
-        probs = np.asarray(forward(handle, batch), dtype=np.float64).ravel()
+        probs = np.asarray(forward(handle, batch), dtype=np.float64)
+        if column is not None:
+            probs = probs[:, column]
+        probs = probs.ravel()
         if probs.size != len(window):
             raise ValueError(
                 f"adapter {card.adapter!r} returned {probs.size} probabilities for a batch "
@@ -650,7 +699,7 @@ class ModelsStage(Stage):
         # Every arm's label column must be present for a record to be kept, so
         # that all arms are compared on one cohort rather than on per-arm
         # cohorts whose denominators silently differ.
-        needed = sorted({arm.label_column for arm in spec.arms})
+        needed = sorted({column for arm in spec.arms for column in arm.required_label_columns})
         # label_value is optional on a cohort, so a regression arm run against a
         # cohort that has none would otherwise exclude every record one by one
         # and surface as "no dev records", which names the wrong problem.
@@ -769,14 +818,14 @@ class ModelsStage(Stage):
             # a trained arm's head is fitted to the arm's objective instead
             # and needs no such check.
             kind = card.output.get("type", "logits")
-            if arm.is_regression != (kind == "regression"):
+            allowed = _INFERENCE_OUTPUT_TYPES[arm.kind]
+            if kind not in allowed:
                 raise ValueError(
                     f"{context}: label_def {arm.label_def!r} needs output.type "
-                    f"{'regression' if arm.is_regression else 'logits/softmax'}, but the "
-                    f"card declares {kind!r}"
+                    f"{'/'.join(allowed)}, but the card declares {kind!r}"
                 )
             handle = _adapter_method(adapter, "load", card)(card)
-            dev_probs = _predict(adapter, handle, dev, loader, spec.batch_size, card)
+            dev_probs = _predict(adapter, handle, dev, loader, spec.batch_size, card, _column(arm, card))
             final_handle = handle
             training["weights"] = [dict(weight) for weight in card.weights]
         else:
@@ -791,9 +840,9 @@ class ModelsStage(Stage):
             )
             training.update(detail)
 
-        if arm.is_regression:
-            # A regression arm has no operating point to refit: thresholds are
-            # a classification concept.
+        if arm.is_regression or arm.is_survival:
+            # A regression or survival arm has no operating point to refit:
+            # thresholds are a classification concept.
             thresholds = {}
         else:
             scores = _scores_of(dev, dev_probs, arm.label_column)
@@ -801,7 +850,8 @@ class ModelsStage(Stage):
 
         test_records = test_set.take()
         test_probs = (
-            _predict(adapter, final_handle, test_records, loader, spec.batch_size, card)
+            _predict(adapter, final_handle, test_records, loader, spec.batch_size, card,
+                     _column(arm, card) if arm.training_mode == "inference_only" else None)
             if test_records
             else np.empty(0, dtype=np.float64)
         )
@@ -858,7 +908,7 @@ class ModelsStage(Stage):
             },
             "training": training,
             "thresholds": {name: fit.to_dict() for name, fit in thresholds.items()},
-            "primary_threshold_policy": None if arm.is_regression else PRIMARY_THRESHOLD_POLICY,
+            "primary_threshold_policy": None if arm.is_regression or arm.is_survival else PRIMARY_THRESHOLD_POLICY,
             "contamination": contamination.to_dict(),
             # Spec §4.4: the fact that test was contacted is itself a recorded
             # result. `counts.test_contacts` carries it into the manifest.
@@ -1073,6 +1123,15 @@ def _load_cards(directory: Path) -> Dict[str, Tuple[ModelCard, Path]]:
     return cards
 
 
+def _column(arm: "Arm", card: ModelCard) -> Optional[int]:
+    """The decoded interval an inference_only interval arm reads, else None."""
+    if card.output.get("type") != "segmentation_mask":
+        return None
+    from mival.decode.intervals import INTERVAL_ORDER
+
+    return INTERVAL_ORDER.index(arm.label_def)
+
+
 def _require_columns(frame: Any, columns: Sequence[str], name: str) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
@@ -1087,7 +1146,7 @@ def _labels_from(frame: Any) -> Dict[str, Dict[str, Optional[float]]]:
     labels: Dict[str, Dict[str, Optional[float]]] = {}
     for row in frame.to_dict("records"):
         labels[str(row["image_occurrence_id"])] = {
-            column: (_as_float if column == _REGRESSION_LABEL_COLUMN else _as_int)(row.get(column))
+            column: (_as_float if column in CONTINUOUS_LABEL_COLUMNS else _as_int)(row.get(column))
             for column in LABEL_COLUMNS
         }
     return labels
@@ -1176,7 +1235,8 @@ def _scores_of(records: Sequence[Record], probs: np.ndarray, label_column: str) 
 def _rows(
     records: Sequence[Record], probs: np.ndarray, arm: Arm, ctx: StageContext
 ) -> List[Dict[str, Any]]:
-    logits = [None] * len(records) if arm.is_regression else _logits(probs)
+    continuous = arm.is_regression or arm.is_survival
+    logits = [None] * len(records) if continuous else _logits(probs)
     rows: List[Dict[str, Any]] = []
     for position, record in enumerate(records):
         value = float(probs[position])
@@ -1185,9 +1245,9 @@ def _rows(
             "person_id": record.person_id,
             "split": record.split,
             "fold": record.fold,
-            "prob": None if arm.is_regression else value,
+            "prob": None if continuous else value,
             "logit": logits[position],
-            "pred_value": value if arm.is_regression else None,
+            "pred_value": value if continuous else None,
             "model_id": arm.model_id,
             "training_mode": arm.training_mode,
             "recipe_id": record.recipe_id,
