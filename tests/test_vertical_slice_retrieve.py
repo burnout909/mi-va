@@ -140,3 +140,19 @@ def test_derived_kinds_write_age_and_sex_covariates(tmp_path):
     index, _ = run(tmp_path, spec(tmp_path, "death_within"), rows)
     assert index["cov_age_years"].tolist() == [60.0, 30.0]
     assert index["cov_sex_male"].tolist() == [1.0, 0.0]
+
+
+def test_measurement_file_takes_the_nearest_value_in_window(tmp_path):
+    labs = tmp_path / "labs.csv"
+    pd.DataFrame({
+        "person_id": [10, 10, 10, 11, 12],
+        "measurement_datetime": ["2180-01-01 08:00", "2180-01-02 08:00", "2179-12-31 20:00", "2180-01-05 00:00", "2180-01-01 09:00"],
+        "value": [500.0, 900.0, 700.0, 300.0, 0.0],
+    }).to_csv(labs, index=False)
+    rows = [ecg(1, 10, date(2180, 1, 1)), ecg(2, 11, date(2180, 1, 1)), ecg(3, 12, date(2180, 1, 1))]
+    body = spec(tmp_path, "measurement_file", source={"path": str(labs)}, window_days=1, implausible_below=0)
+    index, excluded = run(tmp_path, body, rows)
+    assert index["image_occurrence_id"].tolist() == [1]
+    assert index["label_value"].tolist() == [500.0] and index["label_delta_days"].tolist() == [0]
+    assert excluded == {"2": "label_missing", "3": "label_implausible"}
+    assert set(RetrieveStage().config_inputs(body).values()) == {labs}

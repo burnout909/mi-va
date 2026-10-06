@@ -22,13 +22,16 @@ PERSON_SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_person.sql"
 #: ``label_source.kind``. ``measurement`` is the original nearest-measurement
 #: label; the others are derived from the person, death and visit tables or
 #: from a per-ECG file, and leave the measurement cutoff columns empty.
-LABEL_KINDS = ("measurement", "age_at_ecg", "death_within", "machine_measurement")
+LABEL_KINDS = ("measurement", "age_at_ecg", "death_within", "machine_measurement", "measurement_file")
 #: Extra cohort_index columns written by each derived kind.
 DERIVED_COLUMNS = {
     "age_at_ecg": (),
     "death_within": ("label_event", "label_time_days"),
     "machine_measurement": ("label_pr", "label_qrs", "label_qt"),
+    "measurement_file": (),
 }
+#: Kinds whose label comes from a file named by ``label_source.path``.
+FILE_KINDS = ("machine_measurement", "measurement_file")
 #: Person covariates every derived kind writes, for cards that take them (L2-3).
 COVARIATE_COLUMNS = ("cov_age_years", "cov_sex_male")
 MALE_CONCEPT_ID = 8507
@@ -82,8 +85,8 @@ class RetrieveSpec:
         kind = str(source.get("kind", "measurement"))
         if kind not in LABEL_KINDS:
             raise ValueError(f"retrieve.label_source.kind {kind!r} is not one of {list(LABEL_KINDS)}")
-        if kind == "machine_measurement" and not source.get("path"):
-            raise ValueError("retrieve.label_source.path is required for kind 'machine_measurement'")
+        if kind in FILE_KINDS and not source.get("path"):
+            raise ValueError(f"retrieve.label_source.path is required for kind {kind!r}")
         return cls(
             label_kind=kind,
             horizon_days=int(source.get("horizon_days", 365)),
@@ -120,8 +123,11 @@ class RetrieveStage(Stage):
     def config_inputs(self, spec: Mapping[str, Any]) -> dict:
         """The per-ECG label file of ``machine_measurement``, so its content is hashed."""
         source = (spec or {}).get("label_source") or {}
-        if source.get("kind") == "machine_measurement" and source.get("path"):
-            return {"machine_measurements": Path(str(source["path"]))}
+        if source.get("kind") in FILE_KINDS and source.get("path"):
+            # The machine-measurement key predates the file kind; kept so
+            # existing delineation runs keep their config_hash.
+            name = "machine_measurements" if source["kind"] == "machine_measurement" else "label_file"
+            return {name: Path(str(source["path"]))}
         return {}
 
     def run(self, ctx: StageContext) -> StageResult:
@@ -211,6 +217,8 @@ def derive_labels(frame, spec: RetrieveSpec):
     if spec.label_kind == "age_at_ecg":
         frame["label_value"] = (index.dt.year - frame["year_of_birth"]).astype(float)
         return frame
+    if spec.label_kind == "measurement_file":
+        return _nearest_file_measurement(frame, index, spec)
     frame["label_value"] = np.nan
     if spec.label_kind == "death_within":
         death = pandas.to_datetime(frame["death_date"])
@@ -238,6 +246,30 @@ def derive_labels(frame, spec: RetrieveSpec):
     return merged
 
 
+def _nearest_file_measurement(frame, index, spec: RetrieveSpec):
+    """Nearest value within ``window_days`` from a (person_id, measurement_datetime, value) file.
+
+    Same rule as the measurement SQL: smallest day distance, ties to the
+    earlier measurement. For labels whose numbers did not survive the CDM load
+    (MIMIC NT-proBNP: value '___', valuenum present).
+    """
+    import pandas
+
+    labs = pandas.read_csv(spec.measurements_path)
+    labs = labs[labs["value"].notna()].copy()
+    labs["measurement_datetime"] = pandas.to_datetime(labs["measurement_datetime"])
+    labs["measurement_date"] = labs["measurement_datetime"].dt.normalize()
+    ecg = frame[["image_occurrence_id", "person_id"]].assign(_index_date=index.dt.normalize())
+    pairs = ecg.merge(labs, on="person_id", how="inner")
+    pairs["_delta"] = (pairs["measurement_date"] - pairs["_index_date"]).dt.days
+    pairs = pairs[pairs["_delta"].abs() <= spec.window_days]
+    pairs = pairs.assign(_abs=pairs["_delta"].abs()).sort_values(["image_occurrence_id", "_abs", "measurement_datetime"])
+    best = pairs.drop_duplicates("image_occurrence_id")[["image_occurrence_id", "value", "measurement_datetime", "_delta"]]
+    best = best.rename(columns={"value": "label_value", "measurement_datetime": "label_datetime", "_delta": "label_delta_days"})
+    out = frame.drop(columns=["label_value", "label_datetime", "label_delta_days"], errors="ignore")
+    return out.merge(best, on="image_occurrence_id", how="left")
+
+
 def _study_id(path: Any) -> Optional[int]:
     """The ``s<digits>`` directory of a MIMIC-IV-ECG path."""
     match = re.search(r"/s(\d+)/", str(path))
@@ -250,7 +282,12 @@ def exclude_derived(frame, spec: RetrieveSpec, ledger):
             ledger.record(row.image_occurrence_id, row.person_id, code, detail(row))
         return frame[~mask]
 
-    if spec.label_kind == "age_at_ecg":
+    if spec.label_kind == "measurement_file":
+        frame = drop(frame, frame["label_value"].isna(), "label_missing",
+                     lambda r: f"no value within {spec.window_days} days in the label file")
+        frame = drop(frame, frame["label_value"] <= spec.implausible_below, "label_implausible",
+                     lambda r: f"label_value={r.label_value}")
+    elif spec.label_kind == "age_at_ecg":
         frame = drop(frame, frame["label_value"].isna(), "label_missing", lambda r: "no year_of_birth")
         frame = drop(frame, frame["label_value"] < 18, "label_implausible", lambda r: f"age={r.label_value}")
     elif spec.label_kind == "death_within":
