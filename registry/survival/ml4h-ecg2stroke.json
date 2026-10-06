@@ -1,0 +1,81 @@
+{
+  "model_id": "ml4h-ecg2stroke",
+  "Name": "ECG2Stroke (ml4h, 2024-10-04), death head",
+  "Summary": "Death survival curve head of the ECG2Stroke multi-task model.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2Stroke",
+  "Descriptors": {
+    "Version": "ecg2stroke_dropout_2024_10_04_10_49_43.h5",
+    "References": [
+      "PMID:42126358"
+    ]
+  },
+  "Model properties": {
+    "Input": "12-lead, 500 Hz, 5000 x 12, whole-ECG z-score"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "keras",
+    "feature_layer": null,
+    "threshold": {},
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/ml4h-ecg2stroke/ecg2stroke_dropout_2024_10_04_10_49_43.h5",
+        "sha256": "d3dc62afacbabc56a1150198e4ec1c69b97fa8cae3412fbbf5a820ab0216888f",
+        "role": "full"
+      }
+    ],
+    "input_contract": {
+      "leads": [
+        "I",
+        "II",
+        "III",
+        "aVR",
+        "aVL",
+        "aVF",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "global_zscore",
+      "layout": "time_lead",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "survival_curve",
+      "head": "output_death_event_survival_curve",
+      "intervals": 25,
+      "bin_days": 146,
+      "horizon_days": 365
+    },
+    "runtime": {
+      "framework": "tensorflow==2.19.1, keras==3.10.0",
+      "python": "3.11.15",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/keras3",
+      "returns": [
+        "logits"
+      ]
+    },
+    "pretraining_corpora": [
+      "mgh"
+    ],
+    "code_commit": "1562f88",
+    "notes": "Head names read from the file (output_stroke_event_survival_curve, output_sex_categorical, output_death_event_survival_curve, output_age_in_days_continuous, output_af_in_read_categorical). README and code disagree on normalisation (per-lead vs whole-ECG; whole-ECG used, as in the code) and on bin width (window/intervals vs 2*window; 146 days used, as in the sibling models). The published stroke score needs Cox coefficients that are not shipped; only the death head is evaluated. BIDMC was an external test site in its paper. GPL-3.0 (repo-level)."
+  }
+}

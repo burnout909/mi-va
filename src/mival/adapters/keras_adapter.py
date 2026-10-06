@@ -61,6 +61,28 @@ def pool_ensemble(
     return pooled[:, positive_index].astype(np.float64)
 
 
+def _load_member(tf: Any, card: ModelCard, spec: Mapping[str, Any]) -> Any:
+    """A saved model, or (``weights_format: keras_weights``) a built one with weights loaded.
+
+    Some checkpoints ship weights only; the card's ``builder`` names a function
+    (under ``code_path``) that returns the uncompiled architecture.
+    """
+    ext = card.raw.get("x-mival", {})
+    if ext.get("weights_format") != "keras_weights":
+        return tf.keras.models.load_model(spec["uri"], compile=False)
+    import importlib
+    import sys
+
+    code_path = ext.get("code_path")
+    if code_path and code_path not in sys.path:
+        sys.path.insert(0, code_path)
+    module_name, _, attribute = ext["builder"]["module"].partition(":")
+    build = getattr(importlib.import_module(module_name), attribute)
+    model = build(**ext["builder"].get("kwargs", {}))
+    model.load_weights(spec["uri"])
+    return model
+
+
 def _select_head(member: Any, raw: Any, head: Optional[str]) -> np.ndarray:
     """One output of a multi-output model, by the card's ``output.head`` name."""
     if isinstance(raw, dict):
@@ -92,10 +114,7 @@ class KerasAdapter(Adapter):
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
         import tensorflow as tf
 
-        members = [
-            tf.keras.models.load_model(spec["uri"], compile=False)
-            for spec in card.weights
-        ]
+        members = [_load_member(tf, card, spec) for spec in card.weights]
         return KerasHandle(members=members, card=card)
 
     def forward(self, handle: KerasHandle, batch: np.ndarray) -> np.ndarray:
@@ -146,7 +165,8 @@ class KerasAdapter(Adapter):
             def predict(x, member=member):
                 return _select_head(member, member(x, training=False), output.get("head"))
 
-            raw = predict_in_frames(predict, arranged, int(frame)) if frame else predict(arranged)
+            raw = (predict_in_frames(predict, arranged, int(frame), output.get("frame_zscore_eps"))
+                   if frame else predict(arranged))
             raws.append(np.asarray(raw, dtype=np.float64))
         if output.get("type") == "segmentation_mask":
             return decode_outputs(output, np.mean(np.stack(raws), axis=0), fs)

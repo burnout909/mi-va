@@ -63,3 +63,10 @@ def test_predict_in_frames_covers_the_tail_and_keeps_order():
     out = predict_in_frames(predict, x, frame=4)
     assert out.shape == (1, 10, 1) and seen == [(3, 4, 1)]
     np.testing.assert_allclose(out[0, :, 0], np.arange(10))
+
+
+def test_predict_in_frames_can_zscore_each_frame():
+    x = np.concatenate([np.full((1, 4, 1), 5.0), np.arange(4, dtype=float).reshape(1, 4, 1)], axis=1)
+    out = predict_in_frames(lambda f: f, x, frame=4, zscore_eps=0.01)
+    np.testing.assert_allclose(out[0, :4, 0], 0.0)
+    assert abs(out[0, 4:, 0].mean()) < 1e-9

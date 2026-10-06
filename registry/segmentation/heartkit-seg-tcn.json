@@ -1,0 +1,75 @@
+{
+  "model_id": "heartkit-seg-tcn",
+  "Name": "HeartKit seg-4-tcn-sm (Ambiq)",
+  "Summary": "Per-sample none/P/QRS/T for a single lead at 100 Hz in 2.56 s frames.",
+  "Link": "https://ambiqai.github.io/heartkit/",
+  "Descriptors": {
+    "Version": "sm/model.keras",
+    "References": []
+  },
+  "Model properties": {
+    "Input": "single lead, 100 Hz, 256-sample frames, per-frame z-score (epsilon 0.01)"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "keras",
+    "feature_layer": null,
+    "threshold": {},
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/heartkit-seg-tcn/sm/model.keras",
+        "sha256": "80481fc0140e92f6783f9f59f41c4e88563c802299f98e6d22480647a27fb031",
+        "role": "full"
+      }
+    ],
+    "input_contract": {
+      "leads": [
+        "II"
+      ],
+      "sampling_rate_hz": 100,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "none",
+      "layout": "time_lead",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "segmentation_mask",
+      "n_outputs": 4,
+      "classes": [
+        "none",
+        "P",
+        "QRS",
+        "T"
+      ],
+      "class_axis": 2,
+      "frame_samples": 256,
+      "frame_zscore_eps": 0.01
+    },
+    "runtime": {
+      "framework": "tensorflow==2.19.1, keras==3.10.0",
+      "python": "3.11.15",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/keras3",
+      "returns": [
+        "logits"
+      ]
+    },
+    "pretraining_corpora": [
+      "ludb",
+      "ecg-synthetic"
+    ],
+    "code_commit": "06f90fa",
+    "notes": "No paper; documentation only. BSD-3-Clause. The 10 s record is cut into 256-sample frames (the last aligned to the end), each z-scored as the training layer_norm does, and the masks stitched. 10 ms resolution limits interval precision. The sm variant is used; lg is also on the server."
+  }
+}

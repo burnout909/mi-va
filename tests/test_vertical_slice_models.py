@@ -90,6 +90,16 @@ def test_inference_only_pairing_table(tmp_path, label_def, output):
         stage.run(ctx)
 
 
+@pytest.mark.parametrize("output_type", ["survival_curve", "mtlr"])
+def test_survival_arm_accepts_curve_outputs(tmp_path, output_type):
+    registry = tmp_path / "registry"
+    write_card(registry, "risk", modes=["inference_only"], output={"type": output_type})
+    inputs = _with_columns(build_inputs(tmp_path, model_ids=("risk",)), label_event=lambda i: i % 2,
+                           label_time_days=lambda i: 100.0)
+    _result, ctx = run_stage(tmp_path, make_spec(registry, [arm("risk", label_def="survival")]), inputs, FakeAdapter())
+    assert _predictions(ctx)["pred_value"].notna().all()
+
+
 def test_lvef_cohort_without_new_columns_still_loads(tmp_path):
     registry = tmp_path / "registry"
     write_card(registry, "toy-a", modes=["inference_only"])

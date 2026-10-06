@@ -36,6 +36,18 @@ stages:
       - {model_id: semisegecg-resnet18, training_mode: inference_only, label_def: pr}
       - {model_id: semisegecg-resnet18, training_mode: inference_only, label_def: qrs}
       - {model_id: semisegecg-resnet18, training_mode: inference_only, label_def: qt}
+      - {model_id: semisegecg-vit-tiny, training_mode: inference_only, label_def: pr}
+      - {model_id: semisegecg-vit-tiny, training_mode: inference_only, label_def: qrs}
+      - {model_id: semisegecg-vit-tiny, training_mode: inference_only, label_def: qt}
+      - {model_id: hrnetv2-delineation, training_mode: inference_only, label_def: pr}
+      - {model_id: hrnetv2-delineation, training_mode: inference_only, label_def: qrs}
+      - {model_id: hrnetv2-delineation, training_mode: inference_only, label_def: qt}
+      - {model_id: openecg-codec-v6, training_mode: inference_only, label_def: pr}
+      - {model_id: openecg-codec-v6, training_mode: inference_only, label_def: qrs}
+      - {model_id: openecg-codec-v6, training_mode: inference_only, label_def: qt}
+      - {model_id: heartkit-seg-tcn, training_mode: inference_only, label_def: pr}
+      - {model_id: heartkit-seg-tcn, training_mode: inference_only, label_def: qrs}
+      - {model_id: heartkit-seg-tcn, training_mode: inference_only, label_def: qt}
 
   evaluate:
     outcomes: {interval: null}

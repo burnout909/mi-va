@@ -1,0 +1,81 @@
+{
+  "model_id": "ml4h-ecg2hf",
+  "Name": "ECG2HF (ml4h, quintuplet dropout 2023-04-17), death head",
+  "Summary": "Death survival curve head of the ECG2HF multi-task model.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2HF",
+  "Descriptors": {
+    "Version": "ecg_5000_hf_quintuplet_dropout_v2023_04_17.keras",
+    "References": [
+      "doi:10.1161/CIRCHEARTFAILURE.125.013927"
+    ]
+  },
+  "Model properties": {
+    "Input": "12-lead, 500 Hz, 5000 x 12, whole-ECG z-score"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "keras",
+    "feature_layer": null,
+    "threshold": {},
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/ml4h-ecg2hf/ecg_5000_hf_quintuplet_dropout_v2023_04_17.keras",
+        "sha256": "1db9005a3e2f5a351efc6ee9b114e281f60f4311ff654b7a51bebb0141f07186",
+        "role": "full"
+      }
+    ],
+    "input_contract": {
+      "leads": [
+        "I",
+        "II",
+        "III",
+        "aVR",
+        "aVL",
+        "aVF",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "global_zscore",
+      "layout": "time_lead",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "survival_curve",
+      "head": "output_death_event_survival_curve",
+      "intervals": 25,
+      "bin_days": 146,
+      "horizon_days": 365
+    },
+    "runtime": {
+      "framework": "tensorflow==2.19.1, keras==3.10.0",
+      "python": "3.11.15",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/keras3",
+      "returns": [
+        "logits"
+      ]
+    },
+    "pretraining_corpora": [
+      "mgh"
+    ],
+    "code_commit": "1562f88",
+    "notes": "Death head decoded as for ml4h-ecg2af (25 x 146-day intervals). Broad Academic Software License: academic use only, covers model outputs. Tested at BIDMC (MIMIC's hospital) in its paper, not trained on it."
+  }
+}

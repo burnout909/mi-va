@@ -99,7 +99,7 @@ _INFERENCE_OUTPUT_TYPES = {
     "binary": ("logits", "softmax", "sigmoid"),
     "value": ("regression",),
     "interval": ("regression", "segmentation_mask"),
-    "survival": ("risk_score",),
+    "survival": ("risk_score", "survival_curve", "mtlr"),
 }
 
 #: Hyperparameters for a regression arm are selected by negative dev MAE:

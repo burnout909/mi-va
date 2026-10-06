@@ -34,6 +34,10 @@ stages:
     batch_size: 64
     arms:
       - {model_id: cavalab-deepsurv-code15, training_mode: inference_only, label_def: survival}
+      - {model_id: cavalab-mtlr-code15, training_mode: inference_only, label_def: survival}
+      - {model_id: ml4h-ecg2af, training_mode: inference_only, label_def: survival}
+      - {model_id: ml4h-ecg2hf, training_mode: inference_only, label_def: survival}
+      - {model_id: ml4h-ecg2stroke, training_mode: inference_only, label_def: survival}
 
   evaluate:
     outcomes: {death_1y: null}

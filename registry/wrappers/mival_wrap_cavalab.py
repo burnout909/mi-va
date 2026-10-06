@@ -30,23 +30,41 @@ def _resnet():
 
 
 class DeepSurvCode15(nn.Module):
-    def __init__(self, fusion_dim=128, fusion_layers=3):
+    """FusionModel of the benchmark: ECG features [+ covariate MLP] -> fusion MLP -> outputs.
+
+    DeepSurv (no demographics): 1 output, no covariates. MTLR with
+    demographics: 100 outputs, covariates (Age in years, Is_Male 0/1, raw)
+    through ``cov_layers`` Linear+ReLU of width ``cov_dim``.
+    """
+
+    def __init__(self, fusion_dim=128, fusion_layers=3, n_outputs=1, n_covariates=0, cov_layers=0, cov_dim=32):
         super().__init__()
         self.ECG_Model = _resnet()
+        covariate = []
+        width_z = n_covariates
+        for _ in range(cov_layers):
+            covariate += [nn.Linear(width_z, cov_dim), nn.ReLU()]
+            width_z = cov_dim
+        self.covariate_module_list = nn.ModuleList(covariate)
         layers = []
-        width = FILTERS[-1] * SEQ_LENGTHS[-1]
+        width = FILTERS[-1] * SEQ_LENGTHS[-1] + (width_z if cov_layers else 0)
         for _ in range(fusion_layers):
             layers += [nn.Linear(width, fusion_dim), nn.ReLU()]
             width = fusion_dim
-        layers.append(nn.Linear(width, 1))
+        layers.append(nn.Linear(width, n_outputs))
         self.fusion_module_list = nn.ModuleList(layers)
         self.register_buffer("lead_mean", torch.zeros(12, 1))
         self.register_buffer("lead_std", torch.ones(12, 1))
 
-    def forward(self, x):
+    def forward(self, x, z=None):
         x = (x - self.lead_mean) / self.lead_std
         x = F.pad(x, (PAD, PAD), "constant", 0.0)
         out = self.ECG_Model(x)
+        if len(self.covariate_module_list):
+            b = z
+            for layer in self.covariate_module_list:
+                b = layer(b)
+            out = torch.cat((out, b), dim=1)
         for layer in self.fusion_module_list:
             out = layer(out)
         return out
@@ -56,7 +74,7 @@ def convert(source, target):
     """Published checkpoint -> state_dict for DeepSurvCode15 (run once, on the server)."""
     checkpoint = torch.load(source, map_location="cpu", weights_only=False)
     state = {key: value for key, value in checkpoint["model_state_dict"].items()
-             if not key.startswith("covariate_module_list")}
+             if not (key.startswith("covariate_module_list") and type(value).__name__ == "UninitializedParameter")}
     assert checkpoint["NT"] == "nchW", checkpoint["NT"]
     state["lead_mean"] = torch.tensor([float(v) for v in checkpoint["NM"]]).reshape(12, 1)
     state["lead_std"] = torch.tensor([float(v) for v in checkpoint["NS"]]).reshape(12, 1)

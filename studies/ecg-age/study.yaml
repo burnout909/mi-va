@@ -24,7 +24,7 @@ stages:
     perturbation:
       axes:
         resample: [500]
-        duration: [10.24]  # baseline-only, equal to Lima's contract (10 s padded to 4096 at 400 Hz)
+        duration: [10.24]  # baseline-only; Lima's contract is 10 s padded to 4096 at 400 Hz (Singstad's 10 s is below it)
     registry: registry/age
     pad_policy: zero  # Lima centres 10 s in 4096 samples at 400 Hz (pad_anchor: center)
 
@@ -34,6 +34,7 @@ stages:
     batch_size: 64
     arms:
       - {model_id: lima-ecg-age, training_mode: inference_only, label_def: value}
+      - {model_id: singstad-ecg-age, training_mode: inference_only, label_def: value}
 
   evaluate:
     outcomes: {age: null}
