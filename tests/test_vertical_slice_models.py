@@ -100,3 +100,21 @@ def test_lvef_cohort_without_new_columns_still_loads(tmp_path):
     _result, ctx = run_stage(tmp_path, make_spec(registry, [arm()]), inputs, FakeAdapter())
     predictions = _predictions(ctx)
     assert predictions["prob"].notna().all() and predictions["label_qrs"].isna().all()
+
+
+def test_interval_arm_runs_on_a_cohort_without_label_value(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "seg", modes=["inference_only"], output={"type": "segmentation_mask", "n_outputs": 4})
+    inputs = _with_columns(build_inputs(tmp_path, model_ids=("seg",), label_value=lambda score: None),
+                           label_pr=lambda i: 150.0, label_qrs=lambda i: 90.0, label_qt=lambda i: 400.0)
+    _result, ctx = run_stage(tmp_path, make_spec(registry, [arm("seg", label_def="qt")]), inputs, SegAdapter())
+    assert _predictions(ctx)["pred_value"].notna().all()
+
+
+def test_regression_arm_without_its_label_column_names_it(tmp_path):
+    registry = tmp_path / "registry"
+    write_card(registry, "seg", modes=["inference_only"], output={"type": "segmentation_mask", "n_outputs": 4})
+    inputs = build_inputs(tmp_path, model_ids=("seg",))
+    stage, ctx = make_context(tmp_path, make_spec(registry, [arm("seg", label_def="qt")]), inputs, SegAdapter())
+    with pytest.raises(ValueError, match="label_qt"):
+        stage.run(ctx)

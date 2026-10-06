@@ -703,15 +703,19 @@ class ModelsStage(Stage):
         # label_value is optional on a cohort, so a regression arm run against a
         # cohort that has none would otherwise exclude every record one by one
         # and surface as "no dev records", which names the wrong problem.
-        if any(arm.is_regression for arm in spec.arms) and all(
-            row.get(_REGRESSION_LABEL_COLUMN) is None for row in labels.values()
-        ):
-            raise ValueError(
-                f"a regression arm needs {_REGRESSION_LABEL_COLUMN!r}, but no record in "
-                "the label source carries one: the column is absent or every value is "
-                "null. Supply a cohort_index whose "
-                f"{_REGRESSION_LABEL_COLUMN!r} column is populated (spec §4.1)."
-            )
+        # The same holds for every continuous label a regression or survival
+        # arm reads (label_qrs, label_time_days, ...).
+        for column in sorted({
+            column for arm in spec.arms if arm.is_regression or arm.is_survival
+            for column in arm.required_label_columns
+        }):
+            if all(row.get(column) is None for row in labels.values()):
+                raise ValueError(
+                    f"a regression arm needs {column!r}, but no record in "
+                    "the label source carries one: the column is absent or every value is "
+                    "null. Supply a cohort_index whose "
+                    f"{column!r} column is populated (spec §4.1)."
+                )
 
         wanted = set(wanted)
         rows = [row for row in index.to_dict("records") if str(row["model_id"]) in wanted]
