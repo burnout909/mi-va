@@ -165,3 +165,73 @@ def test_death_on_the_ecg_day_is_an_event_at_time_zero(tmp_path):
     assert index["image_occurrence_id"].tolist() == [1]
     assert (index["label_event"].iloc[0], index["label_time_days"].iloc[0]) == (1.0, 0.0)
     assert excluded == {"2": "label_implausible"}
+
+
+# --- retrieve.ecg_selection: per_person all|one and the rule that picks the one ---
+
+
+def _selected(tmp_path, selection, rows, kind="age_at_ecg"):
+    index, excluded = run(tmp_path, spec(tmp_path, kind, ecg_selection=selection), rows)
+    return dict(zip(index["person_id"], index["image_occurrence_id"])), excluded
+
+
+def test_ecg_selection_first_and_last_by_date_then_id(tmp_path):
+    rows = [ecg(3, 10, date(2180, 1, 5)), ecg(1, 10, date(2180, 1, 9)), ecg(2, 10, date(2180, 1, 5)),
+            ecg(4, 11, date(2181, 2, 1))]
+    first, excluded = _selected(tmp_path / "f", {"per_person": "one", "rule": "first"}, rows)
+    assert first == {10: 2, 11: 4}  # same day: lower image_occurrence_id wins
+    assert excluded == {"1": "not_selected", "3": "not_selected"}
+    last, _ = _selected(tmp_path / "l", {"per_person": "one", "rule": "last"}, rows)
+    assert last == {10: 1, 11: 4}
+
+
+def test_ecg_selection_all_keeps_every_ecg(tmp_path):
+    rows = [ecg(i, 10, date(2180, 1, i)) for i in range(1, 4)]
+    index, excluded = run(tmp_path, spec(tmp_path, "age_at_ecg", ecg_selection={"per_person": "all"}), rows)
+    assert sorted(index["image_occurrence_id"]) == [1, 2, 3] and excluded == {}
+
+
+def test_ecg_selection_random_matches_legacy_one_per_person(tmp_path):
+    rows = [ecg(i, 10 + i % 3, date(2180, 1, 1 + i)) for i in range(1, 13)]
+    legacy, _ = run(tmp_path / "a", spec(tmp_path, "age_at_ecg", one_per_person=True), rows)
+    new, _ = _selected(tmp_path / "b", {"per_person": "one", "rule": "random"}, rows)
+    assert dict(zip(legacy["person_id"], legacy["image_occurrence_id"])) == new
+
+
+def test_ecg_selection_nearest_label(tmp_path):
+    from test_stage_retrieve import fake_query, row
+
+    # person 10: |delta| 3, 0, 1 -> image 2; person 11: tie |1| on two days -> earlier ECG (image 4)
+    rows = [row(1, 10, 1, 4.0, 3), row(2, 10, 2, 4.1, 0), row(3, 10, 3, 4.2, -1),
+            row(4, 11, 4, 4.0, -1), row(5, 11, 5, 4.0, 1)]
+    stage = RetrieveStage(query=fake_query({3: rows, 4: rows}))
+    body = {"dsn_env": "/x", "modality_concept_id": 4145308, "label_concept_id": 3023103,
+            "local_path_root": str(tmp_path / "dicom"), "require_local_file": False,
+            "window_days": 3, "window_days_sens2": 4, "implausible_below": 1.5,
+            "ecg_selection": {"per_person": "one", "rule": "nearest_label"}}
+    ctx = prepare(stage, "s", "site", body, {}, tmp_path / "runs", seed=3)
+    execute(stage, ctx)
+    index = read_table(ctx.layout.artifact(COHORT_INDEX))
+    assert dict(zip(index["person_id"], index["image_occurrence_id"])) == {10: 2, 11: 4}
+
+
+@pytest.mark.parametrize("selection, kind, message", [
+    ({"per_person": "some"}, "age_at_ecg", "per_person"),
+    ({"per_person": "one"}, "age_at_ecg", "rule"),
+    ({"per_person": "one", "rule": "median"}, "age_at_ecg", "rule"),
+    ({"per_person": "all", "rule": "first"}, "age_at_ecg", "rule"),
+    ({"per_person": "one", "rule": "nearest_label"}, "age_at_ecg", "nearest_label"),
+])
+def test_ecg_selection_rejects_bad_settings(tmp_path, selection, kind, message):
+    from mival.stages.retrieve import RetrieveSpec
+
+    with pytest.raises(ValueError, match=message):
+        RetrieveSpec.from_mapping(spec(tmp_path, kind, ecg_selection=selection))
+
+
+def test_ecg_selection_and_one_per_person_together_is_an_error(tmp_path):
+    from mival.stages.retrieve import RetrieveSpec
+
+    body = spec(tmp_path, "age_at_ecg", one_per_person=True, ecg_selection={"per_person": "all"})
+    with pytest.raises(ValueError, match="one_per_person"):
+        RetrieveSpec.from_mapping(body)

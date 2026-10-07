@@ -15,6 +15,7 @@ stages:
     sens1_cutoff: 50
     local_path_root: /scratch/mi-val/dicom
     require_local_file: true
+    ecg_selection: {per_person: all}
 
   profile:
     test_fraction: 0.2

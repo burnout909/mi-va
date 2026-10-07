@@ -13,7 +13,7 @@ stages:
     implausible_below: 1.5
     local_path_root: /scratch/mi-val/dicom
     require_local_file: true
-    one_per_person: true
+    ecg_selection: {per_person: one, rule: random}
 
   profile:
     test_fraction: 0.2

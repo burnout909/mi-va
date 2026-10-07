@@ -47,6 +47,15 @@ COHORT_INDEX_COLUMNS = (
     "label_datetime", "label_delta_days", "label_value",
     "label_primary", "label_sens1", "label_sens2", "label_sens3",
 )
+#: retrieve.ecg_selection. ``per_person: all`` keeps every eligible ECG;
+#: ``one`` keeps one per person, chosen by ``rule``. CDM image_occurrence
+#: carries a date and no time, so ECGs on the same day are ordered by
+#: image_occurrence_id.
+PER_PERSON = ("all", "one")
+SELECTION_RULES = ("first", "last", "nearest_label", "random")
+#: Kinds whose label is a measurement near the ECG, so label_delta_days exists.
+NEAREST_LABEL_KINDS = ("measurement", "measurement_file")
+
 REASON_CODES = frozenset({"label_missing", "label_implausible", "path_unresolvable", "file_missing", "not_selected"})
 
 Query = Callable[[str, Mapping[str, Any]], Any]
@@ -69,7 +78,12 @@ class RetrieveSpec:
     label_kind: str = "measurement"
     horizon_days: int = 365
     measurements_path: Optional[str] = None
-    one_per_person: bool = False
+    per_person: str = "all"
+    selection_rule: Optional[str] = None
+
+    @property
+    def one_per_person(self) -> bool:
+        return self.per_person == "one"
 
     @classmethod
     def from_mapping(cls, body: Mapping[str, Any]) -> "RetrieveSpec":
@@ -87,11 +101,13 @@ class RetrieveSpec:
             raise ValueError(f"retrieve.label_source.kind {kind!r} is not one of {list(LABEL_KINDS)}")
         if kind in FILE_KINDS and not source.get("path"):
             raise ValueError(f"retrieve.label_source.path is required for kind {kind!r}")
+        per_person, rule = _ecg_selection(body, kind)
         return cls(
             label_kind=kind,
             horizon_days=int(source.get("horizon_days", 365)),
             measurements_path=None if source.get("path") is None else str(source["path"]),
-            one_per_person=bool(body.get("one_per_person", False)),
+            per_person=per_person,
+            selection_rule=rule,
             dsn_env=str(body["dsn_env"]),
             schema=schema,
             label_concept_id=int(body.get("label_concept_id", 3027172)),
@@ -111,6 +127,29 @@ class RetrieveSpec:
             "window_days": window_days,
             "modality_concept_id": self.modality_concept_id,
         }
+
+
+def _ecg_selection(body: Mapping[str, Any], kind: str):
+    """``(per_person, rule)`` from ``ecg_selection``, or from the older ``one_per_person`` flag."""
+    selection = body.get("ecg_selection")
+    if selection is None:
+        # one_per_person: true was the only way to ask for one ECG, and it meant random.
+        return ("one", "random") if body.get("one_per_person") else ("all", None)
+    if "one_per_person" in body:
+        raise ValueError("retrieve: give ecg_selection or one_per_person, not both")
+    per_person = str(selection.get("per_person", ""))
+    if per_person not in PER_PERSON:
+        raise ValueError(f"retrieve.ecg_selection.per_person {per_person!r} is not one of {list(PER_PERSON)}")
+    rule = selection.get("rule")
+    if per_person == "all":
+        if rule is not None:
+            raise ValueError("retrieve.ecg_selection.rule only applies to per_person: one")
+        return "all", None
+    if rule not in SELECTION_RULES:
+        raise ValueError(f"retrieve.ecg_selection.rule {rule!r} is not one of {list(SELECTION_RULES)}")
+    if rule == "nearest_label" and kind not in NEAREST_LABEL_KINDS:
+        raise ValueError(f"retrieve.ecg_selection.rule nearest_label needs a label kind in {list(NEAREST_LABEL_KINDS)}, not {kind!r}")
+    return per_person, rule
 
 
 class RetrieveStage(Stage):
@@ -155,7 +194,7 @@ class RetrieveStage(Stage):
 
         kept = exclude(frame, spec, ctx.ledger)
         if spec.one_per_person:
-            kept = one_per_person(kept, ctx.seed, ctx.ledger)
+            kept = one_per_person(kept, ctx.seed, ctx.ledger, spec.selection_rule)
         kept = attach_labels(kept, spec)
         index_path = write_table(kept[list(COHORT_INDEX_COLUMNS)].to_dict("records"),
                                  ctx.layout.artifact(COHORT_INDEX), COHORT_INDEX_COLUMNS)
@@ -180,7 +219,7 @@ class RetrieveStage(Stage):
         frame = derive_labels(frame, spec)
         kept = exclude_derived(frame, spec, ctx.ledger)
         if spec.one_per_person:
-            kept = one_per_person(kept, ctx.seed, ctx.ledger)
+            kept = one_per_person(kept, ctx.seed, ctx.ledger, spec.selection_rule)
         columns = COHORT_INDEX_COLUMNS + DERIVED_COLUMNS[spec.label_kind] + COVARIATE_COLUMNS
         index_path = write_table(kept[list(columns)].to_dict("records"),
                                  ctx.layout.artifact(COHORT_INDEX), columns)
@@ -313,17 +352,32 @@ def exclude_derived(frame, spec: RetrieveSpec, ledger):
     return frame
 
 
-def one_per_person(frame, seed, ledger):
-    """One seeded random ECG per person; the rest are ledgered as not selected."""
-    import numpy as np
+def one_per_person(frame, seed, ledger, rule="random"):
+    """One ECG per person chosen by ``rule``; the rest are ledgered as not selected.
 
-    rng = np.random.default_rng(seed)
+    random: seeded; first/last: by ECG date, ties to the lower image_occurrence_id;
+    nearest_label: smallest |label_delta_days|, ties to the earlier ECG.
+    """
+    import numpy as np
+    import pandas
+
     ordered = frame.sort_values("image_occurrence_id").reset_index(drop=True)
-    keys = rng.random(len(ordered))
-    chosen = ordered.assign(_key=keys).sort_values(["person_id", "_key"]).groupby("person_id").head(1).index
+    day = pandas.to_datetime(ordered["index_datetime"])
+    if rule == "random":
+        keys = ordered.assign(_k1=np.random.default_rng(seed).random(len(ordered)))[["_k1"]]
+    elif rule == "first":
+        keys = pandas.DataFrame({"_k1": day})
+    elif rule == "last":
+        keys = pandas.DataFrame({"_k1": -day.astype("int64")})
+    elif rule == "nearest_label":
+        keys = pandas.DataFrame({"_k1": ordered["label_delta_days"].abs(), "_k2": day})
+    else:
+        raise ValueError(f"unknown ECG selection rule {rule!r}")
+    ranked = pandas.concat([ordered[["person_id", "image_occurrence_id"]], keys], axis=1)
+    chosen = ranked.sort_values(["person_id", *keys.columns, "image_occurrence_id"]).groupby("person_id").head(1).index
     mask = ordered.index.isin(chosen)
     for row in ordered[~mask].itertuples(index=False):
-        ledger.record(row.image_occurrence_id, row.person_id, "not_selected", "one ECG per person")
+        ledger.record(row.image_occurrence_id, row.person_id, "not_selected", f"one ECG per person ({rule})")
     return ordered[mask]
 
 
