@@ -1,0 +1,42 @@
+{
+  "model_id": "ai-ntprobnp",
+  "Name": "AI-NT-proBNP (Lima-style ResNet, 5-fold)",
+  "Summary": "12-lead ResNet regressing log NT-proBNP; 5-fold ensemble.",
+  "Link": "https://github.com/JanBrem/AI-NT-proBNP",
+  "Descriptors": {"Version": null, "References": ["doi:10.1515/cclm-2023-0743"]},
+  "Model properties": {"Input": "12-lead surface ECG, 2048 samples at 250 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"}
+    ],
+    "weights_format": "checkpoint",
+    "builder": {"module": null, "kwargs": {}},
+    "ensemble": {"method": "mean_probability", "members": 5},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 250, "duration_s": 8.192, "unit": "mV",
+      "filters": [{"kind": "highpass", "cutoff_hz": 0.5, "order": 1}, {"kind": "notch", "cutoff_hz": 50, "order": 1}],
+      "scaling": "per_lead_zscore", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "regression", "n_outputs": 1, "unit": "log NT-proBNP"},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["hamburg-city-health-study"],
+    "code_commit": null,
+    "notes": "unverified: weights (Google Drive weights.zip, 380 MB, id 1dT4N-2PQzp2UxWpuGLZgzkPnys0FKCKI), builder, filter orders, log base. No license in the repo. Preprocessing: 500 Hz downsampled 2x to 250 Hz, 0.5 Hz high-pass, 50 Hz notch, keep the first 2048 samples, per-lead z-score then subtract the median. Sample outputs 1.6-5.5 suggest ln(pg/mL)."
+  },
+  "x-mival-proposed": {
+    "crop": {"keep": "first", "samples": 2048},
+    "post_zscore": {"op": "subtract_median_per_lead"},
+    "output_inverse_transform": {"kind": "exp", "base": "e (unverified)", "unit": "pg/mL"},
+    "ensemble_method": {"name": "mean_regression", "note": "existing method name says probability"}
+  }
+}

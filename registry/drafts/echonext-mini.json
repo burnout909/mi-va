@@ -1,0 +1,49 @@
+{
+  "model_id": "echonext-mini",
+  "Name": "EchoNext-Mini (12-label structural heart disease)",
+  "Summary": "Columbia ResNet1d with tabular features, 12 sigmoid labels; index 0 is lvef_lte_45.",
+  "Link": "https://github.com/PierreElias/IntroECG",
+  "Descriptors": {"Version": "15233e9392e9dc10c136a5624abf10199207bce9",
+                  "References": ["doi:10.1056/AIdbp2500516", "doi:10.1038/s41586-025-09227-0"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 250 Hz, plus 7 tabular features"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": "/data/mi-val/models/echonext-mini/weights.pt", "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model",
+    "builder": {"module": "cradlenet.models.resnet1d_tabular:ResNet1dWithTabular",
+                "kwargs": {"len_tabular_feature_vector": 7, "num_classes": 12, "filter_size": 16}},
+    "code_path": "/opt/introecg",
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 250, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "per_lead_zscore", "layout": "time_lead", "dtype": "float32"
+    },
+    "output": {"type": "sigmoid", "n_outputs": 12, "positive_index": 0},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": "torch==2.13.0+cu130", "python": "3.10.20", "device": "cuda",
+                "env": "/data/mi-val/envs/ecgfounder", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["columbia"],
+    "code_commit": "15233e9392e9dc10c136a5624abf10199207bce9",
+    "notes": "Server-verified 2026-09-21: strict load, (1,1,2500,12)+tabular(1,7) forward -> (1,12). Repo has no LICENSE file. sha256 truncated in docs (aac57aad…e21cd6). layout here is the closest existing value; the real tensor is (B,1,2500,12) and (B,12,2500) is rejected. per_lead_zscore is approximate: the authors clip per lead and z-score with fixed per-lead mean/std from waveform_normalization_params.json, after baseline-wander removal. The tabular input cannot be expressed (existing L2-3)."
+  },
+  "x-mival-proposed": {
+    "input_layout": {"shape": ["batch", 1, "time", "lead"], "note": "4-D tensor with a singleton channel axis"},
+    "waveform_preprocessing": [
+      {"op": "baseline_wander_removal", "source": "parse_xml.py"},
+      {"op": "per_lead_clip_then_zscore", "params_file": "waveform_normalization_params.json", "params_sha256": null}
+    ],
+    "tabular_inputs": {
+      "order": ["sex_male", "age_at_ecg", "ventricular_rate", "atrial_rate", "pr_interval", "qrs_duration", "qt_corrected"],
+      "missing_as_zero": ["atrial_rate", "pr_interval"],
+      "transformer": {"file": "tabular_transformer.joblib", "kind": "sklearn StandardScaler + median impute", "sklearn": "1.1.3"},
+      "mimic_source": "machine_measurements.csv (RR, PR, QRS, QT, QTc) + person age/sex; atrial_rate mapping unconfirmed"
+    },
+    "label_cutoff": {"lvef_lte_45": "LVEF <= 45%", "note": "retrieve has only primary (<=40) and sens1 (<50)"},
+    "exclusions": ["age < 18", "poor quality flag", "ventricular pacing", "missing age or sex", "all measurements missing"]
+  }
+}

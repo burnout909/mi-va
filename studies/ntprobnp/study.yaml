@@ -1,0 +1,50 @@
+study_id: ntprobnp
+site: dicom-miva
+seed: 20261007
+
+stages:
+  retrieve:
+    dsn_env: /data/mi-val/secrets/micdm.env
+    schema: cdm
+    modality_concept_id: 4145308
+    # MI-CDM holds NT-proBNP (concept 3029187, itemid 50963) with value_as_number
+    # empty: the ETL copied MIMIC's redacted text value ('___') and not valuenum.
+    # The label comes from MIMIC-IV 3.1 hosp/labevents itemid 50963 instead
+    # (subject_id -> person_id via person_source_value); see docs/operations.
+    label_source:
+      kind: measurement_file
+      path: /data/mi-val/datasets/mimic-iv/ntprobnp_labels.csv
+    window_days: 1
+    implausible_below: 0
+    local_path_root: /scratch/mi-val/dicom
+    require_local_file: true
+    ecg_selection: {per_person: one, rule: random}
+
+  profile:
+    test_fraction: 0.2
+    n_folds: 5
+    stratify_on: none
+    min_test_positives: 0
+
+  preprocess:
+    loader: dicom
+    registry: registry/ntprobnp
+    allow_upsample: false
+    pad_policy: reject
+    perturbation:
+      axes:
+        resample: [500]
+        duration: [10]
+
+  models:
+    registry: registry/ntprobnp
+    cohort_sources: [mimic-iv-ecg]
+    batch_size: 64
+    arms:
+      - {model_id: ai-ntprobnp, training_mode: inference_only, label_def: value}
+
+  evaluate:
+    outcomes: {ntprobnp: null}
+    regression_cuts: {value: [125, 300]}
+    bootstrap_replicates: 2000
+    figures: true

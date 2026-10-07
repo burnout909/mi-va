@@ -1,0 +1,198 @@
+{
+ "ecgfounder": [
+  [
+   "scale_unit",
+   {
+    "source_unit": "mV",
+    "target_unit": "mV"
+   }
+  ],
+  [
+   "select_leads",
+   {
+    "order": [
+     "I",
+     "II",
+     "III",
+     "aVR",
+     "aVL",
+     "aVF",
+     "V1",
+     "V2",
+     "V3",
+     "V4",
+     "V5",
+     "V6"
+    ]
+   }
+  ],
+  [
+   "normalize",
+   {
+    "method": "global_zscore"
+   }
+  ]
+ ],
+ "heartwise-lvef-binary": [
+  [
+   "scale_unit",
+   {
+    "source_unit": "mV",
+    "target_unit": "mV"
+   }
+  ],
+  [
+   "resample",
+   {
+    "target_hz": 250.0
+   }
+  ],
+  [
+   "select_leads",
+   {
+    "order": [
+     "I",
+     "II",
+     "III",
+     "aVR",
+     "aVL",
+     "aVF",
+     "V1",
+     "V2",
+     "V3",
+     "V4",
+     "V5",
+     "V6"
+    ]
+   }
+  ],
+  [
+   "gain",
+   {
+    "factor": 208.3333
+   }
+  ],
+  [
+   "normalize",
+   {
+    "method": "none"
+   }
+  ]
+ ],
+ "heartwise-lvef-regression": [
+  [
+   "scale_unit",
+   {
+    "source_unit": "mV",
+    "target_unit": "mV"
+   }
+  ],
+  [
+   "resample",
+   {
+    "target_hz": 250.0
+   }
+  ],
+  [
+   "select_leads",
+   {
+    "order": [
+     "I",
+     "II",
+     "III",
+     "aVR",
+     "aVL",
+     "aVF",
+     "V1",
+     "V2",
+     "V3",
+     "V4",
+     "V5",
+     "V6"
+    ]
+   }
+  ],
+  [
+   "gain",
+   {
+    "factor": 208.3333
+   }
+  ],
+  [
+   "normalize",
+   {
+    "method": "none"
+   }
+  ]
+ ],
+ "prophecg-stemi": [
+  [
+   "scale_unit",
+   {
+    "source_unit": "mV",
+    "target_unit": "mV"
+   }
+  ],
+  [
+   "select_leads",
+   {
+    "order": [
+     "I",
+     "II",
+     "V1",
+     "V2",
+     "V3",
+     "V4",
+     "V5",
+     "V6"
+    ]
+   }
+  ],
+  [
+   "normalize",
+   {
+    "method": "none"
+   }
+  ]
+ ],
+ "xecg": [
+  [
+   "scale_unit",
+   {
+    "source_unit": "mV",
+    "target_unit": "mV"
+   }
+  ],
+  [
+   "resample",
+   {
+    "target_hz": 100.0
+   }
+  ],
+  [
+   "select_leads",
+   {
+    "order": [
+     "I",
+     "II",
+     "III",
+     "aVR",
+     "aVL",
+     "aVF",
+     "V1",
+     "V2",
+     "V3",
+     "V4",
+     "V5",
+     "V6"
+    ]
+   }
+  ],
+  [
+   "normalize",
+   {
+    "method": "none"
+   }
+  ]
+ ]
+}

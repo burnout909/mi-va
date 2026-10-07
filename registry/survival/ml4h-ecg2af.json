@@ -1,0 +1,81 @@
+{
+  "model_id": "ml4h-ecg2af",
+  "Name": "ECG2AF (ml4h, quintuplet 2024-01-13), death head",
+  "Summary": "Death survival curve head of the ECG2AF multi-task model.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2AF",
+  "Descriptors": {
+    "Version": "ecg2af_quintuplet_v2024_01_13.keras",
+    "References": [
+      "doi:10.1161/CIRCULATIONAHA.121.057480"
+    ]
+  },
+  "Model properties": {
+    "Input": "12-lead, 500 Hz, 5000 x 12, whole-ECG z-score"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "keras",
+    "feature_layer": null,
+    "threshold": {},
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/ml4h-ecg2af/ecg2af_quintuplet_v2024_01_13.keras",
+        "sha256": "de38e009be5613ebb31ee1969bc1cab648d0f11c865e8afbd60e4bb7784f5627",
+        "role": "full"
+      }
+    ],
+    "input_contract": {
+      "leads": [
+        "I",
+        "II",
+        "III",
+        "aVR",
+        "aVL",
+        "aVF",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "global_zscore",
+      "layout": "time_lead",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "survival_curve",
+      "head": "output_death_event_survival_curve",
+      "intervals": 25,
+      "bin_days": 146,
+      "horizon_days": 365
+    },
+    "runtime": {
+      "framework": "tensorflow==2.19.1, keras==3.10.0",
+      "python": "3.11.15",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/keras3",
+      "returns": [
+        "logits"
+      ]
+    },
+    "pretraining_corpora": [
+      "mgh"
+    ],
+    "code_commit": "1562f88",
+    "notes": "Five heads; the death head (output_death_event_survival_curve, Dense 50, sigmoid) is read. Its first 25 units are conditional probabilities of surviving each of 25 intervals of a 10-year window (146 days); risk at 365 days = 1 - S with a geometric partial interval. The death head was added in a 2025 update without its own paper. Keras 3.9 .keras format, loaded in the keras3 env. GPL-3.0."
+  }
+}

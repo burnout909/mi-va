@@ -1,0 +1,120 @@
+{
+  "model_id": "ai-ntprobnp",
+  "Name": "AI-NT-proBNP (5-fold ResNet)",
+  "Summary": "log NT-proBNP from a 12-lead ECG, 5-fold mean, exponentiated to pg/mL.",
+  "Link": "https://github.com/RoyMKeil/AI-NT-proBNP",
+  "Descriptors": {
+    "Version": "weights.zip (best-auc-fold0..4)",
+    "References": [
+      "doi:10.1515/cclm-2023-0743"
+    ]
+  },
+  "Model properties": {
+    "Input": "12-lead, 250 Hz, first 2048 samples, 0.5 Hz Butterworth + 50 Hz powerline, lead-wise z-score minus median"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "torch",
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {
+      "framework": "torch==2.13.0+cu130",
+      "python": "3.10.20",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/ecgfounder",
+      "returns": [
+        "logits"
+      ]
+    },
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "ensemble": {
+      "method": "mean",
+      "members": 5
+    },
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/ai-ntprobnp/weights/best-auc-fold0-008epoch.bin",
+        "sha256": "1b0828d232fee606f98571ee4101dd55ff369f5db11c9ce52ed74d8cb5389310",
+        "role": "ensemble_member"
+      },
+      {
+        "uri": "/data/mi-val/models/ai-ntprobnp/weights/best-auc-fold1-008epoch.bin",
+        "sha256": "f8f73d9f3bb7eea49a3f1802c07bd296cd530fbe3aab2a098af59ab08fd49788",
+        "role": "ensemble_member"
+      },
+      {
+        "uri": "/data/mi-val/models/ai-ntprobnp/weights/best-auc-fold2-009epoch.bin",
+        "sha256": "ca26d6858cae5f71202d4c28a27086954ff79ae296538c4040bcb876fb56481b",
+        "role": "ensemble_member"
+      },
+      {
+        "uri": "/data/mi-val/models/ai-ntprobnp/weights/best-auc-fold3-004epoch.bin",
+        "sha256": "fb262ed42e9d9f92f278bc71412c9c9417cfc6106b5fe2f5ce26e36307073e3d",
+        "role": "ensemble_member"
+      },
+      {
+        "uri": "/data/mi-val/models/ai-ntprobnp/weights/best-auc-fold4-008epoch.bin",
+        "sha256": "20e403f28f5b9b5a20299b01d48dcd43d2cc16fdaa848141b6477316a28d4ab2",
+        "role": "ensemble_member"
+      }
+    ],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model_state_dict",
+    "rename_keys": {
+      "": "net."
+    },
+    "builder": {
+      "module": "mival_wrap_ntprobnp:AiNtProBnp",
+      "kwargs": {}
+    },
+    "code_path": "/data/mi-val/models/_wrappers",
+    "input_contract": {
+      "leads": [
+        "I",
+        "II",
+        "III",
+        "aVR",
+        "aVL",
+        "aVF",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "sampling_rate_hz": 250,
+      "duration_s": 8.192,
+      "unit": "mV",
+      "filters": [
+        {
+          "kind": "highpass",
+          "cutoff_hz": 0.5,
+          "order": 5
+        }
+      ],
+      "scaling": "none",
+      "layout": "lead_time",
+      "dtype": "float32",
+      "crop_anchor": "start"
+    },
+    "output": {
+      "type": "regression",
+      "n_outputs": 1,
+      "value_index": 0,
+      "unit": "pg/mL",
+      "transform": {
+        "kind": "exp"
+      }
+    },
+    "pretraining_corpora": [
+      "hchs"
+    ],
+    "code_commit": "bca6ba6a2b87cb89848395be5a0875527bfa00a3",
+    "notes": "README: 'log transformed NT-proBNP levels'; base not stated, natural log assumed (sample outputs 1.6-5.5). Folds are averaged on the log scale, then exponentiated. No license in the repo. 50 Hz powerline (neurokit2 moving average, as trained in Hamburg) is kept even though MIMIC is 60 Hz mains."
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "model_id": "cavalab-mtlr-code15",
+  "Name": "cavalab Code-15 ResNet MTLR (with demographics)",
+  "Summary": "Ribeiro ResNet1d with a fusion MLP emitting 100 MTLR logits for all-cause mortality; takes age and sex.",
+  "Link": "https://github.com/cavalab/ecg-survival-benchmark",
+  "Descriptors": {"Version": "zenodo:16877773", "References": ["arXiv:2406.17002", "pmid:41408648"]},
+  "Model properties": {"Input": "12-lead surface ECG, middle 7 s at 400 Hz zero-padded to 4096 samples, plus age and sex"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model_state_dict",
+    "builder": {"module": null, "kwargs": {}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 400, "duration_s": 7, "unit": "mV", "filters": [],
+      "scaling": "per_lead_zscore", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "softmax", "n_outputs": 100, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["code-15"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha ('Code15 ResNet MTLR w Dem.pt', 30.6 MB), builder, covariate scaling (Age assumed raw years). Same input caveats as cavalab-deepsurv-code15. x-mival.output 'softmax' over 100 is the nearest existing value and is wrong in meaning: MTLR logits need the pycox MTLR transform, not a softmax over classes."
+  },
+  "x-mival-proposed": {
+    "output": {"kind": "mtlr_logits", "n_bins": 100, "cuts": "pycox label_transform(100), equidistant on [0, max_duration]", "max_duration_years": 7.677, "decode": "pycox MTLR predict_surv"},
+    "covariate_inputs": {"order": ["Age", "Is_Male"], "scaling": "unverified"},
+    "normalization": {"op": "per_lead_zscore", "statistics_from": "checkpoint keys NM, NS"},
+    "crop_and_pad": {"keep": "middle 2800 samples (7 s)", "pad": "648 zeros each side", "to_samples": 4096}
+  }
+}

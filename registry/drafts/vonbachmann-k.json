@@ -1,0 +1,41 @@
+{
+  "model_id": "vonbachmann-k",
+  "Name": "von Bachmann et al. electrolyte regression, potassium",
+  "Summary": "8-lead ResNet regressing z-scored serum potassium; 5 trained models.",
+  "Link": "https://github.com/philippvb/ecg-electrolyte-regression",
+  "Descriptors": {"Version": "zenodo:7456316", "References": ["doi:10.1038/s41598-024-65223-w"]},
+  "Model properties": {"Input": "8-lead surface ECG (I, II, V1-V6), 4096 samples at 400 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"},
+      {"uri": null, "sha256": null, "role": "ensemble_member"}
+    ],
+    "weights_format": "checkpoint",
+    "builder": {"module": null, "kwargs": {}},
+    "ensemble": {"method": "mean_probability", "members": 5},
+    "input_contract": {
+      "leads": ["I", "II", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 400, "duration_s": 10.24, "unit": "mV",
+      "filters": [{"kind": "highpass", "cutoff_hz": 0.5, "order": 1}, {"kind": "notch", "cutoff_hz": 50, "order": 1}],
+      "scaling": "none", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "regression", "n_outputs": 1, "unit": "z-score of mmol/L"},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["swedish-ed"],
+    "code_commit": null,
+    "notes": "unverified: all 5 weight uris/shas (regression_models/potassium/model_{0-4}/model.pth inside a 7.5 GB zip), builder, filter cutoffs and orders (high-pass and notch are documented, parameters are not), input unit. The paper's median model is #3; ensemble 'mean_probability' is the nearest existing method but this is a mean of regression outputs. Targets were z-scored (normalize: true) and the training mean/SD are not shipped."
+  },
+  "x-mival-proposed": {
+    "output_inverse_transform": {"kind": "zscore", "mean": 3.99, "sd": 0.50, "unit": "mmol/L",
+                                 "source": "paper Table 1 cohort values, not the training statistics"},
+    "ensemble_method": {"name": "mean_regression", "note": "existing method name says probability"}
+  }
+}

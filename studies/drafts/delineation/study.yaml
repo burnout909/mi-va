@@ -1,0 +1,59 @@
+study_id: delineation-draft
+site: dicom-miva
+seed: 20261006
+
+stages:
+  retrieve:
+    dsn_env: /data/mi-val/secrets/micdm.env
+    schema: cdm
+    label_concept_id: null
+    modality_concept_id: 4145308
+    local_path_root: /scratch/mi-val/dicom
+    require_local_file: true
+    window_days: 0
+    window_days_sens2: 0
+    implausible_below: 0
+    x-proposed:
+      label_source: {kind: per_ecg_measurements, from: "MIMIC-IV-ECG machine_measurements.csv",
+                     fields: [pr_interval, qrs_duration, qt_interval], unit: ms, join: "study_id of the same ECG"}
+      note: >-
+        The reference is several machine measurements of the same ECG, not one
+        measurement concept near it. Human P/QRS/T annotations do not exist in
+        MIMIC-IV-ECG.
+
+  profile:
+    test_fraction: 0.2
+    n_folds: 5
+    stratify_on: label_primary
+    min_test_positives: 0
+
+  preprocess:
+    loader: dicom
+    registry: registry/drafts
+    allow_upsample: false
+    pad_policy: reject
+    x-proposed:
+      per_lead_fanout: "one 12-lead record becomes 12 single-lead inputs for these models"
+
+  models:
+    registry: registry/drafts
+    cohort_sources: [mimic-iv-ecg]
+    batch_size: 64
+    arms:
+      - {model_id: openecg-codec-v6, training_mode: inference_only, label_def: primary}
+      - {model_id: hrnetv2-delineation, training_mode: inference_only, label_def: primary}
+      - {model_id: semisegecg-resnet18, training_mode: inference_only, label_def: primary}
+      - {model_id: semisegecg-vit-tiny, training_mode: inference_only, label_def: primary}
+      - {model_id: heartkit-seg-tcn, training_mode: inference_only, label_def: primary}
+    x-proposed:
+      prediction_shape: "per sample per lead, not one score per record"
+      derived_outputs: [pr_ms, qrs_ms, qt_ms]
+      lead_aggregation: "unspecified (median across leads? lead II only?)"
+
+  evaluate:
+    outcomes: {primary: null}
+    bootstrap_replicates: 2000
+    figures: true
+    x-proposed:
+      metrics: [mean_absolute_error_ms, bland_altman_bias_and_limits]
+      per: [pr_ms, qrs_ms, qt_ms]

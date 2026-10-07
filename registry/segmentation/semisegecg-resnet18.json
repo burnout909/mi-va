@@ -1,0 +1,135 @@
+{
+  "model_id": "semisegecg-resnet18",
+  "Name": "SemiSegECG ResNet-18 FCN (supervised)",
+  "Summary": "Per-sample P/QRS/T delineation of a single lead.",
+  "Link": "https://github.com/bakqui/semi-seg-ecg",
+  "Descriptors": {
+    "Version": "resnet18-supervised.pth",
+    "References": [
+      "arXiv:2507.18323"
+    ]
+  },
+  "Model properties": {
+    "Input": "single lead, 250 Hz, 2500 samples, 0.67-40 Hz Butterworth, z-score"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/semisegecg-resnet18/resnet18-supervised.pth",
+        "sha256": "3f970419085d13fa718f114308509772a99669ead8355ed953929f2c62b9e15b",
+        "role": "full"
+      }
+    ],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model",
+    "builder": {
+      "module": "mival_wrap_semiseg:SemiSegEncoderDecoder",
+      "kwargs": {
+        "backbone": {
+          "resnet18": {
+            "num_leads": 1,
+            "num_stages": 4,
+            "out_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "dilations": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "strides": [
+              1,
+              2,
+              2,
+              2
+            ],
+            "deep_stem": false,
+            "avg_down": false,
+            "contract_dilation": false
+          }
+        },
+        "decode_head": {
+          "FCNHead": {
+            "in_channels": 512,
+            "in_index": 3,
+            "channels": 128,
+            "num_convs": 1,
+            "concat_input": false,
+            "dropout_ratio": 0.1,
+            "num_classes": 4,
+            "align_corners": false
+          }
+        }
+      }
+    },
+    "code_path": "/data/mi-val/models/_wrappers",
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "input_contract": {
+      "leads": [
+        "II"
+      ],
+      "sampling_rate_hz": 250,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [
+        {
+          "kind": "highpass",
+          "cutoff_hz": 0.67,
+          "order": 5
+        },
+        {
+          "kind": "lowpass",
+          "cutoff_hz": 40,
+          "order": 5
+        }
+      ],
+      "scaling": "global_zscore",
+      "layout": "lead_time",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "segmentation_mask",
+      "n_outputs": 4,
+      "classes": [
+        "none",
+        "P",
+        "QRS",
+        "T"
+      ],
+      "class_axis": 1
+    },
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {
+      "framework": "torch==2.13.0+cu130",
+      "python": "3.10.20",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/ecgfounder",
+      "returns": [
+        "logits"
+      ]
+    },
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "pretraining_corpora": [
+      "ludb",
+      "qtdb",
+      "isp",
+      "zhejiang"
+    ],
+    "code_commit": "cf22fb55b7e85f01c4450deb085f8ce5b0932dcb",
+    "notes": "Config from the checkpoint: filters are scipy butter(order 5) + sosfiltfilt at 250 Hz, then standardize over (lead, time). The framework filters before resampling (500 Hz), which keeps the same passband. Lead II only (spec 2026-10-07). Class order none, P, QRS, T from the repo's label convention (unverified against a labelled record). License conflict: LICENSE Apache-2.0, README all rights reserved. The checkpoint config names the backbone resnet18_seg; the public repo exposes it as resnet18 (same kwargs); strict load confirms the names match."
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "model_id": "ml4h-ecg2stroke",
+  "Name": "ml4h ECG2Stroke",
+  "Summary": "12-lead network with incident-stroke and death survival heads plus sex, age and AF heads.",
+  "Link": "https://github.com/broadinstitute/ml4h/tree/master/model_zoo/ECG2Stroke",
+  "Descriptors": {"Version": "ecg2stroke_dropout_2024_10_04_10_49_43", "References": ["pmid:42126358"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 500 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 500, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "global_zscore", "layout": "time_lead", "dtype": "float32"
+    },
+    "output": {"type": "sigmoid", "n_outputs": 50, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["mgh"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (225 MB .h5, not opened), keras version, head order. README says per-lead z-score, code uses whole-ECG z-score (global_zscore chosen, conflict unresolved). README bin width uses 2*days_window unlike ECG2AF/ECG2HF (unresolved). The published score is a Cox model on the network output plus age and sex whose coefficients are not shipped. BIDMC was an external test site in the paper. x-mival.output is the nearest existing value and is wrong in meaning."
+  },
+  "x-mival-proposed": {
+    "heads": [
+      {"name": "stroke survival curve", "shape": [50], "kind": "survival_curve", "endpoint": "incident ischaemic stroke", "window_days": 3650},
+      {"name": "death survival curve", "shape": [50], "kind": "survival_curve", "endpoint": "all-cause death", "window_days": 3650},
+      {"name": "sex", "kind": "categorical"},
+      {"name": "age", "kind": "regression"},
+      {"name": "af", "kind": "categorical"}
+    ],
+    "use_head": "death survival curve",
+    "head_names": "unverified (file not opened)",
+    "survival_curve_decoding": {"same_as": "ml4h-ecg2af", "bin_days": "conflict: window/intervals vs 2*window in README"},
+    "published_score": {"kind": "cox_on_output", "covariates": ["age", "sex"], "coefficients": "not shipped"},
+    "normalization_conflict": ["per_lead_zscore (README)", "global_zscore (code)"]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "model_id": "lima-ecg-age",
+  "Name": "Lima et al. ECG-age (CODE ResNet)",
+  "Summary": "12-lead ResNet regressing chronological age in years.",
+  "Link": "https://github.com/antonior92/ecg-age-prediction",
+  "Descriptors": {"Version": "zenodo:4892365", "References": ["doi:10.1038/s41467-021-25351-7"]},
+  "Model properties": {"Input": "12-lead surface ECG, 4096 samples at 400 Hz (10 s centred, zero-padded)"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "model",
+    "builder": {"module": "resnet:ResNet1d", "kwargs": {}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 400, "duration_s": 10.24, "unit": "mV", "filters": [],
+      "scaling": "none", "gain": 10.0, "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "regression", "n_outputs": 1, "unit": "years"},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["code"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha, builder kwargs (read config.json in model.zip), code_commit. Weights CC-BY-4.0, code MIT. Input unit contradictory in README ('scale 1e-4 V' vs 'multiply V by 1000'); gain 10 (0.1 mV units) is inferred from CODE-15 per-lead SDs and a one-ECG test (mV 79.1 y, mV×10 47.7 y, mV×1000 -390 y). 10 s are centred and zero-padded to 4096 samples; duration_s 10.24 encodes 4096/400 but the model sees 10 s of signal."
+  },
+  "x-mival-proposed": {
+    "padding": {"to_samples": 4096, "signal_samples": 4000, "mode": "zero, centred"},
+    "unit_ambiguity": {"candidates": ["mV", "mV*10", "mV*1000"], "chosen": "mV*10", "evidence": "inferred, see notes"}
+  }
+}

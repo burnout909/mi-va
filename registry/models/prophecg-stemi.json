@@ -1,0 +1,55 @@
+{
+  "model_id": "prophecg-stemi",
+  "Name": "PROPHECG-STEMI",
+  "Summary": "Single-task 8-lead ECG classifier for ST-segment elevation myocardial infarction, deployed as a five-member mean ensemble.",
+  "Link": "https://doi.org/10.1016/j.annemergmed.2024.06.004",
+  "Descriptors": {
+    "Version": "2022-12-04 BestModelSaved",
+    "References": [
+      {
+        "DOI": "10.1016/j.annemergmed.2024.06.004",
+        "PMID": "39066765",
+        "Title": "Development of Clinically Validated Artificial Intelligence Model for Detecting ST-segment Elevation Myocardial Infarction"
+      }
+    ]
+  },
+  "Model properties": {
+    "Input": "8-lead 12-lead-derived surface ECG, 10 seconds at 500 Hz"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [
+      {"uri": "/data/mi-val/models/prophecg-stemi/221204_16431_bestmodel.h5", "sha256": "316e4fac1ccf994625dfc918f5bb5c6cecc3ff689dcf38b698b4322427754894", "role": "ensemble_member"},
+      {"uri": "/data/mi-val/models/prophecg-stemi/221204_16432_bestmodel.h5", "sha256": "5754744b3ef464266d7891ab62a403c82ce6314f17578b400157c2e2684d30f3", "role": "ensemble_member"},
+      {"uri": "/data/mi-val/models/prophecg-stemi/221204_16433_bestmodel.h5", "sha256": "8691d778cb439189a5d19173daed58052d2570b9fe4b3f4ccae10894349f3f39", "role": "ensemble_member"},
+      {"uri": "/data/mi-val/models/prophecg-stemi/221204_16434_bestmodel.h5", "sha256": "6cb467412d62d4ac542695fdb674f6e760ab0dbd02c4a9f9ad8a665f2fa4690b", "role": "ensemble_member"},
+      {"uri": "/data/mi-val/models/prophecg-stemi/221204_16435_bestmodel.h5", "sha256": "1fea2e24a4a0acc68141ab4a4cc5b699eab58b0b485e777a226e2e6fd187939d", "role": "ensemble_member"}
+    ],
+    "ensemble": {"method": "mean_probability", "members": 5},
+    "input_contract": {
+      "leads": ["I", "II", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "none",
+      "layout": "time_lead",
+      "dtype": "float32"
+    },
+    "output": {"type": "softmax", "positive_index": 1},
+    "feature_layer": "dense_1",
+    "feature_width": 64,
+    "threshold": {
+      "value": 0.0768,
+      "provenance": "archived PTB-XL revision notebook",
+      "status": "legacy"
+    },
+    "runtime": {"framework": "tensorflow==2.7.4", "keras": "2.7.0", "python": "3.9.25", "device": "cpu"},
+    "training_modes_supported": ["inference_only", "linear_probe", "full_finetune"],
+    "pretraining_corpora": ["institutional-ed-ecg-2022"],
+    "notes": "Amplitude unit/scaling is not documented in the archived dataset notebook; scaling is declared as none pending confirmation. Training used 5120 samples with 120 leading zeros, but the shared H5 signature is 5000."
+  }
+}

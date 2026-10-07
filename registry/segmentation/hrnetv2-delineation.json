@@ -1,0 +1,81 @@
+{
+  "model_id": "hrnetv2-delineation",
+  "Name": "HRNetV2 ECG delineation (MedicalAI-DP Space)",
+  "Summary": "Per-sample multi-label P/QRS/T logits for a single lead.",
+  "Link": "https://huggingface.co/spaces/MedicalAI-DP/ECG_Delineation",
+  "Descriptors": {
+    "Version": "res/models/hrnetv2/weights.pth",
+    "References": []
+  },
+  "Model properties": {
+    "Input": "single lead, 500 Hz, 5000 samples, per-lead z-score x 0.1"
+  },
+  "Imaging": {
+    "Modality": "ECG"
+  },
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [
+      {
+        "uri": "/data/mi-val/models/hrnetv2-delineation/weights.pth",
+        "sha256": "4d4d77219df74e4e69dc2feb33322caaf1b273353183e21c60385c9141d57bec",
+        "role": "full"
+      }
+    ],
+    "weights_format": "state_dict",
+    "builder": {
+      "module": "mival_wrap_hrnet:HRNetV2Delineation",
+      "kwargs": {}
+    },
+    "code_path": "/data/mi-val/models/_wrappers",
+    "ensemble": {
+      "method": "none",
+      "members": 1
+    },
+    "input_contract": {
+      "leads": [
+        "II"
+      ],
+      "sampling_rate_hz": 500,
+      "duration_s": 10,
+      "unit": "mV",
+      "filters": [],
+      "scaling": "global_zscore",
+      "layout": "lead_time",
+      "dtype": "float32"
+    },
+    "output": {
+      "type": "segmentation_mask",
+      "n_outputs": 4,
+      "classes": [
+        "none",
+        "P",
+        "QRS",
+        "T"
+      ],
+      "class_axis": 1
+    },
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {
+      "framework": "torch==2.13.0+cu130",
+      "python": "3.10.20",
+      "device": "cuda",
+      "env": "/data/mi-val/envs/ecgfounder",
+      "returns": [
+        "logits"
+      ]
+    },
+    "training_modes_supported": [
+      "inference_only"
+    ],
+    "pretraining_corpora": [
+      "ludb"
+    ],
+    "code_commit": "b7feb76",
+    "notes": "No paper; Hugging Face Space only, Apache-2.0 per its README. Normalisation inferred from the Space's demo arrays (per-lead mean 0, SD 0.1), applied as contract z-score then x0.1 in the wrapper. Channel cut-offs from app.py. The Space's run-length post-processing (merge gaps < 5/25/15, drop runs < 25) is approximated by the decoder's 10 ms minimum run.",
+    "rename_keys": {
+      "": "model."
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "model_id": "kardionet-k-12lead",
+  "Name": "Kardio-Net 12-lead serum potassium",
+  "Summary": "EfficientNet regressing serum potassium (mEq/L) from 12-lead ECG.",
+  "Link": "https://github.com/ecg-net/hyperkalemia",
+  "Descriptors": {"Version": null, "References": ["doi:10.1016/j.jacep.2024.07.023"]},
+  "Model properties": {"Input": "12-lead surface ECG, 10 seconds at 500 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "torch",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "weights_format": "checkpoint",
+    "state_dict_key": "state_dict",
+    "builder": {"module": null, "kwargs": {}},
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"],
+      "sampling_rate_hz": 500, "duration_s": 10, "unit": "mV", "filters": [],
+      "scaling": "per_lead_zscore", "layout": "lead_time", "dtype": "float32"
+    },
+    "output": {"type": "regression", "n_outputs": 1, "unit": "mEq/L"},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cuda", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["cedars-sinai"],
+    "code_commit": null,
+    "notes": "unverified: weights uri/sha (model_12_lead.pt), PyTorch Lightning builder, code_commit, whether the 12-lead checkpoint is the general or the dialysis fine-tune. 12-lead preprocessing undocumented; the single-lead pipeline does baseline removal, wavelet denoising, then lead-wise z-score with mean/SD computed on the target dataset. ecg_denoising() returns inside its loop (processes only the first file). Output assumed raw mEq/L (MSE loss)."
+  },
+  "x-mival-proposed": {
+    "dataset_level_normalization": {"op": "per_lead_zscore", "statistics_from": "target cohort", "see": "L2-2"},
+    "denoising": {"op": "wavelet", "source": "single-lead pipeline, undocumented for 12-lead"}
+  }
+}

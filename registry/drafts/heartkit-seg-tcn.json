@@ -1,0 +1,31 @@
+{
+  "model_id": "heartkit-seg-tcn",
+  "Name": "HeartKit seg-4-tcn-lg",
+  "Summary": "Single-lead TCN emitting per-sample none/P/QRS/T over 2.56 s frames.",
+  "Link": "https://github.com/AmbiqAI/heartkit",
+  "Descriptors": {"Version": "seg-4-tcn-lg/latest", "References": []},
+  "Model properties": {"Input": "single-lead ECG, 256 samples (2.56 s) at 100 Hz"},
+  "Imaging": {"Modality": "ECG"},
+  "x-mival": {
+    "adapter": "keras",
+    "weights": [{"uri": null, "sha256": null, "role": "full"}],
+    "ensemble": {"method": "none", "members": 1},
+    "input_contract": {
+      "leads": ["II"], "sampling_rate_hz": 100, "duration_s": 2.56, "unit": "mV", "filters": [],
+      "scaling": "global_zscore", "layout": "time_lead", "dtype": "float32"
+    },
+    "output": {"type": "softmax", "n_outputs": 4, "positive_index": null},
+    "feature_layer": null,
+    "threshold": {},
+    "runtime": {"framework": null, "python": null, "device": "cpu", "returns": ["logits"]},
+    "training_modes_supported": ["inference_only"],
+    "pretraining_corpora": ["ludb", "synthetic"],
+    "code_commit": null,
+    "notes": "unverified: sha256 of model.keras (Ambiq S3 model zoo), keras version. No paper; docs only. BSD-3-Clause. Intended for wearables. A 10 s ECG needs sliding 256-sample windows; duration_s 2.56 makes the compiler crop to one window. 10 ms resolution is coarse for interval measurement. x-mival.output is the nearest existing value and is wrong in meaning."
+  },
+  "x-mival-proposed": {
+    "per_lead": {"leads_accepted": 1, "apply_to": "each lead independently"},
+    "windowing": {"frame_samples": 256, "stride_samples": "unspecified", "note": "one record -> several frames -> stitched mask"},
+    "output": {"kind": "per_sample_mask", "shape": [256, 4], "classes": ["none", "P", "QRS", "T"]}
+  }
+}

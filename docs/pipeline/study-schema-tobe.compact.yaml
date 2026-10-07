@@ -1,0 +1,70 @@
+study_id: <study_id>                     # string
+site: <site>                             # string
+seed: <int>                              # int
+
+stages:
+  retrieve:
+    dsn_env: <path>                      # path (DB 접속 env 파일)
+    schema: cdm                          # string (CDM schema)
+    modality_concept_id: 4145308         # int (OMOP concept, ECG = 4145308)
+    local_path_root: <path>              # path (DICOM 루트)
+    require_local_file: true             # bool
+    ecg_selection:
+      per_person: one                    # one | all
+      rule: first                        # first | last | nearest_label | random
+    label_source:
+      kind: measurement                  # measurement | measurement_file | age_at_ecg | death_within | machine_measurement
+      path: <path>                       # path (measurement_file, machine_measurement)
+      horizon_days: 365                  # int, days (death_within)
+    label_concept_id: <int>              # int (OMOP concept, measurement)
+    window_days: 7                       # int, days (0 = 같은 날)
+    window_days_sens2: 30                # int, days
+    implausible_below: 5                 # number (라벨 단위)
+    primary_cutoff: 40                   # number (라벨 단위, label <= cutoff → 1)
+    sens1_cutoff: 50                     # number (라벨 단위)
+
+  profile:
+    test_fraction: 0.2                   # float, 0–1
+    n_folds: 5                           # int, ≥ 2
+    stratify_on: label_primary           # label_primary | label_sens1 | label_sens2 | label_sens3 | none
+    min_test_positives: 100              # int, ≥ 0
+
+  preprocess:
+    loader: dicom                        # dicom | npz
+    registry: <path>                     # path (모델 카드 디렉터리)
+    allow_upsample: false                # bool
+    pad_policy: reject                   # reject | zero
+    perturbation:
+      mode: ofat                         # ofat | cartesian
+      axes:
+        resample: [500]                  # list[int], Hz (기본 500, 250, 125, 100)
+        duration: [10]                   # list[number], s (기본 10, 5, 2.5)
+        lead_dropout: [none]             # list: none | drop_V3V4 | precordial_only | limb_only
+        amplitude_scale: [1.0]           # list[float] (기본 1.0, 0.5, 2.0)
+        noise: [none]                    # list: none | baseline_wander | emg | powerline_<Hz>hz (예: powerline_60hz)
+
+  models:
+    registry: <path>                     # path (모델 카드 디렉터리)
+    cohort_sources: [mimic-iv-ecg]       # list[string] (학습 데이터 겹침 판정용 코호트 이름)
+    batch_size: 64                       # int
+    arms:
+      - model_id: <model_id>             # string (카드의 model_id)
+        training_mode: inference_only    # inference_only | linear_probe | partial_unfreeze | full_finetune
+        label_def: primary               # primary | sens1 | sens2 | sens3 | value | pr | qrs | qt | survival
+        hparam_grid: {lr: [0.01, 0.001]} # map[string → list] (학습 모드)
+        hparams: {}                      # map (고정값, 학습 모드)
+        unfreeze_groups: []              # list[string] (partial_unfreeze)
+        early_stopping_fold: 0           # int, 0 – n_folds-1
+
+  evaluate:
+    outcomes: {<outcome>: null}          # map[string → null]
+    regression_cuts: [40]                # list[number] 또는 map[label_def → list[number]]
+    horizons_days: [365]                 # list[int], days
+    threshold_policy: refit_sens95       # refit_sens95 | refit_youden | legacy
+    sensitivity_target: 0.95             # float, 0–1 (refit_sens95)
+    decision_thresholds: [0.05, 0.1]     # list[float], 0–1 (net benefit)
+    subgroups: []                        # list[string] (attributes 컬럼 이름)
+    min_events: 10                       # int
+    bootstrap_replicates: 2000           # int (0 = CI 없음)
+    bootstrap_alpha: 0.05                # float, 0–1
+    figures: true                        # bool
