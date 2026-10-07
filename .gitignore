@@ -20,3 +20,10 @@ reports/generated/
 *.pth
 *.pt
 *.ckpt
+
+# Server access and site identifiers kept out of the public repo
+connect*.sh
+infra/aws/*.local.env
+infra/aws/manifests/*.local.json
+# Sample metrics with small cell counts
+docs/figures/lvef-sample/*.csv
