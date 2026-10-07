@@ -1,0 +1,120 @@
+# MI-VAL study.yaml 공통 스키마 (2026-10-07, 15개 모델 + LVEF 실행 후 확정본)
+#
+# 모든 task가 이 한 가지 구조를 쓴다. task마다 달라지는 것은
+#   1) retrieve.label_source.kind  (라벨을 어디서 어떻게 붙이나)
+#   2) models.arms[].label_def     (평가 유형: 분류 / 회귀 / 분할 간격 / 생존)
+#   3) evaluate의 기준값          (regression_cuts, horizons_days)
+# 세 군데뿐이고, 평가 지표는 label_def에 따라 자동으로 정해진다(고르는 옵션 없음).
+#
+# 표기: (필수) = 없으면 실패, 나머지는 = 뒤가 기본값.
+# 맨 아래에 task별 실제 값 요약이 있다.
+
+study_id: <문자열>                # (필수) 결과 경로와 run key에 쓰임
+site: <문자열>                    # (필수) 기관/데이터 소스 이름. 예: dicom-miva
+seed: <정수>                      # 1인 1건 추출, split, bootstrap에 공통으로 쓰는 seed
+
+stages:
+
+  # ── 1. retrieve: CDM에서 ECG를 찾고 라벨을 붙인다 ─────────────────────────
+  retrieve:
+    dsn_env: <경로>                 # (필수) DB 접속 정보 env 파일
+    schema: cdm                     # OMOP CDM schema 이름
+    modality_concept_id: 4145308    # ECG. image_occurrence에 CXR도 섞여 있어 필요
+    local_path_root: <경로>         # (필수) DICOM 파일 루트
+    require_local_file: true        # 파일이 실제로 없으면 제외 (file_missing)
+    one_per_person: false           # true면 사람마다 ECG 1건을 seed로 무작위 선택
+
+    # 라벨 종류. 생략하면 kind: measurement
+    label_source:
+      kind: measurement             # measurement | measurement_file | age_at_ecg | death_within | machine_measurement
+      # path: <경로>                # measurement_file, machine_measurement일 때 (필수)
+      # horizon_days: 365           # death_within일 때
+
+    # kind: measurement / measurement_file 에서만 쓰는 키
+    label_concept_id: <정수>        # CDM measurement concept (measurement일 때)
+    window_days: 7                  # ECG 날짜 ± 며칠 안의 가장 가까운 값. 0 = 같은 날
+    window_days_sens2: 30           # 민감도 분석용 넓은 창
+    implausible_below: 5            # 이 값 이하는 비정상으로 제외
+    primary_cutoff: 40              # 분류 라벨 label_primary = 값 <= cutoff
+    sens1_cutoff: 50                # 민감도 분석용 cutoff
+
+    # kind별 고정 규칙 (설정 키 아님, 코드에 정해짐)
+    #   age_at_ecg          : ECG 연도 − 출생연도, 18세 미만 제외
+    #   death_within        : 추적 종료 = min(ECG + horizon, 마지막 방문 종료 + 365일);
+    #                         방문 기록 없음 / 추적 0일 이하(당일 사망 제외) 제외
+    #   machine_measurement : 장비 측정 PR/QRS/QT, 범위 밖 제외
+    #                         (PR 60–400, QRS 40–250, QT 200–700 ms)
+
+  # ── 2. profile: 사람 단위로 dev / test 를 나눈다 ──────────────────────────
+  profile:
+    test_fraction: 0.2              # 사람 단위
+    n_folds: 5                      # dev 안의 CV fold (probe 학습용)
+    stratify_on: label_primary      # 층화 기준 컬럼. 연속값·생존 task는 none
+    min_test_positives: 100         # test 양성이 이보다 적으면 실패. 연속값 task는 0
+
+  # ── 3. preprocess: 파형을 읽어 모델 카드 입력 규격에 맞춘다 ───────────────
+  preprocess:
+    loader: dicom                   # dicom | npz
+    registry: <경로>                # 모델 카드 디렉터리 (models.registry와 같게)
+    allow_upsample: false           # 카드 규격보다 낮은 샘플링을 올려서 맞추는 것 허용 여부
+    pad_policy: reject              # reject | zero. 길이가 모자랄 때 거절할지 0으로 채울지
+    perturbation:                   # 강건성 실험 격자 (현재 전 task baseline만 사용)
+      mode: ofat                    # ofat(한 축씩) | cartesian(전체 조합)
+      axes:                         # 생략한 축은 기본 수준 사용
+        resample: [500]             # 기본 500, 250, 125, 100 Hz
+        duration: [10]              # 기본 10, 5, 2.5 s
+        # lead_dropout: [none, drop_V3V4, precordial_only, limb_only]
+        # amplitude_scale: [1.0, 0.5, 2.0]
+        # noise: [none, baseline_wander, emg]   # powerline_60hz는 명시해야 함
+
+  # ── 4. models: 카드별로 예측한다 ─────────────────────────────────────────
+  models:
+    registry: <경로>                # 모델 카드(json) 디렉터리
+    cohort_sources: [mimic-iv-ecg]  # 오염(contamination) 판정용: 이 코호트가 카드의 학습 데이터에 있었나
+    batch_size: 64
+    arms:                           # (필수) 모델 × 학습 방식 × 라벨 한 줄씩
+      - model_id: <카드 model_id>   # (필수)
+        training_mode: inference_only   # (필수) inference_only | linear_probe | partial_unfreeze | full_finetune
+        label_def: primary          # 평가 유형을 정함 (아래 표)
+        # hparam_grid: {lr: [0.01, 0.001]}   # 학습 모드일 때 dev fold에서 고름
+        # hparams: {...}                     # 고정 하이퍼파라미터
+        # unfreeze_groups: [...]             # partial_unfreeze일 때
+        # early_stopping_fold: 0
+    #
+    # label_def → 평가 유형 → 지표 (자동)
+    #   primary (그 외 이진 라벨) → 분류  : AUROC, AUPRC, sens/spec/PPV/NPV/F1/MCC, 보정, net benefit
+    #   value                     → 회귀  : MAE, RMSE, R², bias, LoA, AUROC@cut
+    #   pr | qrs | qt             → 회귀(분할 간격): 위와 같음
+    #   survival                  → 생존  : Harrell C-index, AUROC@horizon
+
+  # ── 5. evaluate: 지표를 계산한다 (test split, 사람 단위 bootstrap) ────────
+  evaluate:
+    outcomes: {<이름>: null}         # 결과 이름 (보고서 축)
+    regression_cuts: [40]           # 회귀의 AUROC@cut 기준. label_def별 매핑 가능: {pr: [200], qrs: [120]}
+    horizons_days: [365]            # 생존 AUROC 시점
+    bootstrap_replicates: 2000
+    bootstrap_alpha: 0.05
+    # bootstrap_metrics: [auroc]    # CI를 낼 지표만 좁힘 (지표 자체는 다 나옴)
+    threshold_policy: refit_sens95  # 분류 운영점: refit_sens95 | refit_youden | legacy (dev에서 정함)
+    # sensitivity_target: 0.95
+    # decision_thresholds: [...]    # net benefit 기준 위험
+    # subgroups: [sex, age_band]    # 하위군 반복 (attributes 입력 필요)
+    min_events: 10                  # 하위군 사건 수가 이보다 적으면 값 숨김
+    # comparisons: [{name, a, b}]   # 두 arm 간 차이 검정
+    figures: true
+
+# ── task별 실제 값 요약 ─────────────────────────────────────────────────────
+#
+# task       label_source.kind    라벨 조건                          1인1건  label_def          evaluate 기준
+# LVEF       measurement 3027172  심초음파 LVEF ±7일, ≤5 제외        아니오  primary(≤40), value cuts [40]
+# 나이       age_at_ecg           ECG 연도−출생연도, 18세 미만 제외   예      value              cuts [65]
+# 1년 사망   death_within 365     위 추적 규칙                        예      survival           horizons [365]
+# 칼륨       measurement 3023103  같은 날, ≤1.5 제외                  예      value              cuts [3.5, 5.5]
+# NT-proBNP  measurement_file     MIMIC labevents 50963, ±1일         예      value              cuts [125, 300]
+# 분할       machine_measurement  장비 PR/QRS/QT, 범위 밖 제외        예      pr, qrs, qt        cuts pr 200 / qrs 120 / qt 450
+#
+# 알려진 한계
+# - 분할의 기준은 장비 자동 측정(12-lead 대표 박동의 전체 간격)이고 전문가 수동 주석이 아니다.
+#   결과는 정확도가 아니라 "장비 측정과의 일치도"로 해석한다. 경계 F1 같은 논문 지표는 계산할 수 없다.
+# - LVEF만 1인 다건(사람 단위 bootstrap). 나머지는 1인 1건.
+# - Pearson/Spearman, log 척도, Antolini C 같은 지표는 아직 없다(보류 중인 논문 재현 계획에 포함).
