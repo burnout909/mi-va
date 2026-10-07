@@ -23,7 +23,7 @@ docs/
 - [프로젝트 Overview](docs/overview/README.md)
 - [Overview Word 원본](docs/overview/MI-VAL_overview.docx)
 - [2026-08-06 회의록](docs/meetings/2026-08-06.md)
-- [규리T 공유 자원](docs/resources/README.md)
+- [공유 자원](docs/resources/README.md)
 - [파이프라인 문서](docs/pipeline/README.md)
 - [2026-08-14 미팅 전 Task](docs/tasks/2026-08-14.md)
 - [결정사항과 Open Questions](docs/decisions/README.md)
