@@ -38,7 +38,7 @@ A 없이 B를 하면 자동 추출이 맞았는지 판단할 기준이 없다. �
 | 생존 | `cavalab-mimic` | DeepHit ResNet, DeepHit InceptionTime | Antolini C 0.77 / 0.78 (MIMIC-IV test) | 없음. 같은 데이터, 같은 split |
 | 생존 | `lima-survival` | lima-ecg-age 파생 | 예측 나이 − 실제 나이 > 8년 HR 1.79, Cox(나이+성별+ECG-age) 1년 AUC 0.80 | 인구집단 |
 | 분할 | `semiseg` | ResNet-18, ViT-Tiny | 간격 MAE PR/QRS/QT | 정답이 사람 주석 → 기계판독 |
-| 분할 | `openecg` | codec v6 | 경계 F1 0.855, 시점 오차 11.1 ms (LUDB) | 정답이 기계판독 시점 (12-lead 전체 기준) |
+| 분할 | `openecg` | codec v6 | 경계 F1 0.855, 시점 오차 11.1 ms (LUDB) | 비교 불가. 기계판독 시점은 원신호 위치가 아니라 대표 박동 기준 ms. 간격 MAE만 보고 |
 
 정답 study는 12개, arm으로 세면 16건이다 (cavalab 두 study가 각 2 arm, SemiSeg 2 arm. Lima 논문 하나가
 회귀와 생존 study 2개로 나뉜다).
@@ -164,12 +164,11 @@ retrieve.window_minutes:
 
 | # | 필드 | 동작 | 필요한 곳 |
 |---|---|---|---|
-| R1 | `window_minutes`, `window_direction` (`both`/`before`/`after`), `pairing: nearest` | 분 단위 간격. ECG마다 시간상 가장 가까운 값을 짝짓는다. measurement의 `measurement_datetime`을 쓴다. 시각이 없는 행은 제외하고 그 수를 manifest에 남긴다 | 칼륨 2개, HeartWise, AI-NT-proBNP |
-| R1 | `one_per_person: false` + `test_first_per_person` | ECG 전부 사용. 평가 세트만 사람당 첫 ECG로 줄이는 옵션 (von Bachmann) | 칼륨 2개, cavalab-mimic, ECGFounder |
+| R1 | `label_source.window_minutes`, `label_source.ecg_time_path` | 분 단위 간격. MI-CDM `image_occurrence`에는 날짜만 있어서 ECG 시각은 `machine_measurements.csv`의 `ecg_time`(study_id로 연결)에서 읽는다. 라벨은 `measurement_file` 종류로 파일에서 읽고, ECG마다 시간상 가장 가까운 값을 짝짓는다 | 칼륨 2개 |
+| R1 | `one_per_person: first` | 사람당 가장 이른 ECG (von Bachmann의 test 규칙). `false`면 ECG 전부 | 칼륨 2개, cavalab-mimic, ECGFounder |
 | R2 | `label_source: {kind: file, path, key: waveform_path, split_column}` | 외부 라벨 파일. split 열이 있으면 profile이 그 split을 그대로 쓴다 | ECGFounder, cavalab-mimic |
-| R3 | `subgroups_def: {<name>: {conditions: [...], procedures: [...], window: ever_before}}` | OMOP condition/procedure로 person 단위 부분집단 플래그를 만든다 | Kardio-Net ESRD |
+| R3 | 부분집단 표 (`scripts/repro/build_esrd_attributes.py`) | OMOP condition/procedure로 person 단위 플래그를 만들어 evaluate의 기존 `attributes` 입력으로 넣는다. retrieve는 바꾸지 않는다 | Kardio-Net ESRD |
 | R4 | `label_source: {kind: death_followup, censor_rule: cavalab}` | 추적 기간 제한 없음, cavalab censoring 규칙. 기존 `death_within`은 그대로 | cavalab-mimic |
-| R5 | 분할 라벨에 기계판독 시점 (`p_onset, p_end, qrs_onset, qrs_end, t_end`) | `machine_measurements.csv`에서 같이 읽는다 | OpenECG |
 
 split 파일 만들기는 study 밖의 스크립트로 한다 (`scripts/repro/make_split_<paper_id>.py`). 저자 코드의
 split 로직을 그대로 옮기고, 결과 건수를 논문과 대조해 notes.md에 적는다.
@@ -181,7 +180,6 @@ split 로직을 그대로 옮기고, 결과 건수를 논문과 대조해 notes.
 | M1 | 회귀 지표에 `pearson`, `spearman` 추가. `label_transform: log10` (예측과 라벨 둘 다) | | AI-NT-proBNP, von Bachmann, Lima |
 | M2 | `regression_cuts`와 분류 cutoff에 문자열 방향 허용 (`">6.5"`, `"<3.5"`, `"<=40"`) | 숫자만 주면 지금 동작 | 칼륨 2개, LVEF 2개 |
 | M3 | 생존 지표에 `antolini_c` | PyCox와 같은 정의. 생존곡선 출력이 필요하다. 위험 점수만 내는 모델은 계산하지 않고 이유를 남긴다 | cavalab 4개 |
-| M4 | 분할 지표에 `fiducial_error` (시점별 평균 오차와 SD), `boundary_f1` (허용 오차 `tolerance_ms`, 기본 150) | 모델 마스크에서 시점을 뽑는다 (`decode/intervals.py`) | OpenECG |
 | M5 | `derived_arms`: 다른 arm 예측값으로 파생 변수를 만든다 (예: `pred_age - true_age > 8`). `cox: {covariates: [...], report: [hr, auc_at]}` | | Lima 생존 |
 
 ### models
@@ -193,7 +191,7 @@ split 로직을 그대로 옮기고, 결과 건수를 논문과 대조해 notes.
 
 ## ③ 비교 리포트
 
-evaluate 마지막에 `claims.yaml`이 있으면 비교를 만든다. 출력은 `comparison.csv`, `comparison.md`이고,
+evaluate가 끝난 뒤 `python -m mival.repro.compare`가 비교를 만든다 (evaluate stage는 바꾸지 않는다). 출력은 `comparison.csv`, `comparison.md`이고,
 전체를 모은 `docs/repro/summary.xlsx`는 스크립트로 만든다.
 
 | paper | arm | metric | cut | subgroup | 논문 | 재현 (95% CI) | 차이 | 판정 | 조건 차이 |
@@ -217,7 +215,7 @@ evaluate 마지막에 `claims.yaml`이 있으면 비교를 만든다. 출력은 
 | 0 | 정답 study, claims, evidence 작성. 원문 수집. `gold-review.md` | 12개 전부 (실행 전 형식만) |
 | 1 | M1, M2, ③ 비교 | heartwise, lima-age, singstad-age, ai-ntprobnp |
 | 2 | R1, R2, R3 | vonbachmann-k, kardionet-k, ecgfounder |
-| 3 | R4, R5, M3, M4, D1 | cavalab-code15, cavalab-mimic, semiseg, openecg |
+| 3 | R4, M3, D1 | cavalab-code15, cavalab-mimic, semiseg, openecg |
 | 4 | M5 | lima-survival |
 
 - 각 차수는 구현 → 테스트 → 샘플 1,000건 end-to-end → 서버 queue에 전체 실행 등록 → 다음 차수
@@ -268,6 +266,17 @@ evaluate 마지막에 `claims.yaml`이 있으면 비교를 만든다. 출력은 
   `gold-review.md`에 같이 둔다.
 - B 순서는 다음과 같다: B1 지침서 + 스키마 + 개발용 튜닝 → B2 평가용 추출과 채점 →
   (선택) 평가용 2~3건은 자동 study를 실제로 돌려 판정이 정답과 같은지 본다.
+
+## 구현 전 확인으로 바뀐 것 (2026-10-07)
+
+- R5, M4 삭제: MIMIC-IV-ECG `machine_measurements.csv`의 `p_onset`(예: 40), `qrs_onset`(170)은 원신호 안의
+  샘플 위치가 아니라 대표 박동 기준 ms다. 원신호 경계 F1과 시점 오차는 계산할 수 없다.
+- R1: `image_occurrence`에 시각이 없다 (`image_occurrence_date`만). ECG 시각은 `machine_measurements.csv`의
+  `ecg_time`에서 온다.
+- R3: evaluate에 이미 `attributes` 입력(person 또는 ECG 단위 join)이 있어서 retrieve를 바꾸지 않는다.
+- 1차 study 4개는 코호트가 기존 공통 study와 같아서 기존 예측을 그대로 쓰고 evaluate만 다시 돈다.
+- 서버 Python env에 lifelines, statsmodels, pycox가 없다. Cox와 Antolini C는 numpy로 구현하고, 정의를
+  옮긴 brute-force 구현을 테스트 기준으로 둔다.
 
 ## 하지 않는 것
 
