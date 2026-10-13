@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from mival.contract import InputContract
+from mival.placeholders import expand
 
 _REQUIRED_TOP_FIELDS = (
     "model_id",
@@ -48,6 +49,8 @@ class ModelCard:
 
 def load_card(path: Path) -> ModelCard:
     body = json.loads(Path(path).read_text())
+    if "x-mival" in body:
+        body["x-mival"] = expand(body["x-mival"], Path(path))
     for key in _REQUIRED_TOP_FIELDS:
         if key not in body:
             raise ValueError(f"{path}: {key} is required")

@@ -111,3 +111,54 @@ def test_cli_requires_the_declared_inputs(tmp_path):
     write_study(tmp_path, MINIMAL)
     with pytest.raises(SystemExit, match="requires --input for: cohort_index"):
         main(["run", "preprocess", "--study", str(tmp_path), "--runs-root", str(tmp_path / "runs")])
+
+
+def _site_files(tmp_path, study_extra="", site_text=None):
+    site = tmp_path / "config" / "site.yaml"
+    site.parent.mkdir()
+    site.write_text(site_text if site_text is not None else
+                    "site: site-b\nretrieve:\n  dbms: sqlserver\n  schema: CDM.dbo\n"
+                    "  dsn_env: ${MIVAL_HOME}/config/micdm.env\nmodels:\n  cohort_sources: [site-b-ecg]\n")
+    study = tmp_path / "studies" / "s" / "study.yaml"
+    study.parent.mkdir(parents=True)
+    study.write_text("study_id: s\nsite_config: ${MIVAL_HOME}/config/site.yaml\nseed: 1\n"
+                     "stages:\n  retrieve:\n    window_days: 7\n" + study_extra)
+    return study
+
+
+def test_site_config_is_merged_into_the_stage_specs(tmp_path, monkeypatch):
+    from mival.pipeline.study import load_study
+
+    monkeypatch.setenv("MIVAL_HOME", str(tmp_path))
+    study = load_study(_site_files(tmp_path))
+    assert study.site == "site-b"
+    assert study.stage_spec("retrieve") == {
+        "window_days": 7, "dbms": "sqlserver", "schema": "CDM.dbo",
+        "dsn_env": f"{tmp_path}/config/micdm.env"}
+    assert study.stage_spec("models") == {"cohort_sources": ["site-b-ecg"]}
+
+
+def test_site_config_spec_hashes_like_the_inline_spec(tmp_path, monkeypatch):
+    from mival.pipeline.hashing import config_hash
+    from mival.pipeline.study import load_study
+
+    monkeypatch.setenv("MIVAL_HOME", str(tmp_path))
+    merged = load_study(_site_files(tmp_path)).stage_spec("retrieve")
+    inline = {"window_days": 7, "dbms": "sqlserver", "schema": "CDM.dbo", "dsn_env": f"{tmp_path}/config/micdm.env"}
+    assert config_hash(merged, {}) == config_hash(inline, {})
+
+
+def test_a_key_in_both_places_is_rejected(tmp_path, monkeypatch):
+    from mival.pipeline.study import load_study
+
+    monkeypatch.setenv("MIVAL_HOME", str(tmp_path))
+    with pytest.raises(ValueError, match="schema set both here and in"):
+        load_study(_site_files(tmp_path, study_extra="    schema: cdm\n"))
+
+
+def test_missing_site_config_file_is_reported(tmp_path, monkeypatch):
+    from mival.pipeline.study import load_study
+
+    monkeypatch.setenv("MIVAL_HOME", str(tmp_path / "elsewhere"))
+    with pytest.raises(ValueError, match="does not exist"):
+        load_study(_site_files(tmp_path))

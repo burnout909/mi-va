@@ -14,10 +14,11 @@
 
 | 항목 | 설명 |
 |---|---|
-| `dsn_env` | DB 접속 정보(PGHOST 등)가 든 env 파일 경로. |
-| `schema` | OMOP CDM이 들어 있는 DB schema 이름. |
+| `dbms` | `postgresql`(기본) 또는 `sqlserver`. 라벨 쿼리를 DBMS에 맞는 것으로 고른다. |
+| `dsn_env` | DB 접속 정보가 든 env 파일 경로. `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (PostgreSQL은 `PGHOST` 등도 됨). |
+| `schema` | OMOP CDM이 들어 있는 DB schema 이름. SQL Server는 `database.schema` 형식도 된다 (예: `CDM2025.dbo`). |
 | `modality_concept_id` | `image_occurrence`에서 ECG만 고르는 concept. 12-lead ECG는 4145308 (CXR이 같은 테이블에 섞여 있어 필요). |
-| `local_path_root` | DICOM 파일이 있는 루트 경로. CDM의 파일 경로를 이 아래로 다시 연결한다. |
+| `local_path_root` | `null`(또는 생략)이면 CDM `image_occurrence.local_path`를 그대로 DICOM 경로로 쓴다. 경로를 주면 local_path의 `/files/` 뒤 부분을 이 루트의 `files/` 아래로 다시 연결한다 (CDM을 만든 곳과 파일 위치가 다를 때). |
 | `require_local_file` | true면 DICOM 파일이 실제로 없는 ECG를 제외한다. |
 | `ecg_selection.per_person` | `all`은 조건을 통과한 ECG를 전부 쓰고(1인 다건), `one`은 사람마다 1건만 쓴다. 생략하면 `all`. |
 | `ecg_selection.rule` | `one`일 때 고르는 기준. `first`(가장 이른 ECG), `last`(가장 늦은 ECG), `nearest_label`(라벨 측정과 가장 가까운 ECG), `random`(seed 무작위). 같은 날 ECG는 image_occurrence_id 순서로 정한다(CDM에 시각 없음). |
@@ -27,7 +28,7 @@
 | `label_concept_id` | `measurement`일 때 라벨로 쓸 CDM measurement concept (예: 칼륨 3023103). |
 | `window_days` | ECG 날짜 ± 며칠 안의 검사값 중 가장 가까운 것을 라벨로 쓴다. 0이면 같은 날. |
 | `window_days_sens2` | 민감도 분석용으로 넓힌 window(일). |
-| `implausible_below` | 라벨 값이 이 값 이하이면 비정상으로 보고 제외한다 (라벨 단위). |
+| `implausible_below` | 라벨 값이 이 값 이하이면 비정상으로 보고 제외한다 (라벨 단위). 생략하면 5, `null`이면 이 기준으로 제외하지 않는다. |
 | `primary_cutoff` | 분류 라벨 기준. 값 ≤ cutoff이면 양성(1). 예: LVEF ≤ 40. |
 | `sens1_cutoff` | 민감도 분석용 분류 기준 (예: LVEF ≤ 50). |
 

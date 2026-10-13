@@ -171,3 +171,34 @@ def test_lvef_study_perturbation_axes_pass_every_registry_card(registry_dir):
             check_grid_against_contract(axes, card.input_contract, card.model_id)
         except GridContractError as exc:
             pytest.fail(f"{card.model_id}: {exc}")
+
+
+def _card_with_paths(tmp_path, weight_uri, code_path):
+    body = json.loads((REGISTRY / "ecgfounder.json").read_text())
+    body["x-mival"]["weights"][0]["uri"] = weight_uri
+    body["x-mival"]["code_path"] = code_path
+    body["x-mival"]["runtime"]["env"] = "/abs/env"
+    path = tmp_path / "card.json"
+    path.write_text(json.dumps(body))
+    return path
+
+
+def test_card_paths_expand_from_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIVAL_HOME", "/site/mival")
+    path = _card_with_paths(tmp_path, "${MIVAL_HOME}/models/w.pth", "${MIVAL_HOME}/code/x")
+    card = load_card(path)
+    assert card.weights[0]["uri"] == "/site/mival/models/w.pth"
+    assert card.raw["x-mival"]["code_path"] == "/site/mival/code/x"
+
+
+def test_card_with_unset_placeholder_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("MIVAL_HOME", raising=False)
+    path = _card_with_paths(tmp_path, "${MIVAL_HOME}/models/w.pth", "/abs/code")
+    with pytest.raises(ValueError, match="MIVAL_HOME is not set"):
+        load_card(path)
+
+
+def test_card_without_placeholder_is_unchanged(tmp_path, monkeypatch):
+    monkeypatch.delenv("MIVAL_HOME", raising=False)
+    path = _card_with_paths(tmp_path, "/abs/w.pth", "/abs/code")
+    assert load_card(path).weights[0]["uri"] == "/abs/w.pth"

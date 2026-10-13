@@ -11,14 +11,18 @@ applied to the 10 s record before it is centred in 4096 samples. The contract
 pads first, so the filter runs on the unpadded centre here.
 """
 
+import os
 import sys
 
 import numpy as np
 import torch
 from torch import nn
 
-KARDIONET_CODE = "/opt/hyperkalemia"
-ELECTROLYTE_CODE = "/opt/ecg-electrolyte-regression"
+# Authors' repositories: /opt on the reference server, ${MIVAL_HOME}/code in a
+# site bundle.
+CODE_ROOT = os.environ["MIVAL_HOME"] + "/code" if "MIVAL_HOME" in os.environ else "/opt"
+KARDIONET_CODE = CODE_ROOT + "/hyperkalemia"
+ELECTROLYTE_CODE = CODE_ROOT + "/ecg-electrolyte-regression"
 
 
 def _load_file(name, path):

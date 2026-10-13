@@ -6,9 +6,13 @@ values (uV) put through ``pad_sequences``, which casts to int32, so the same
 truncation is applied in front of the network.
 """
 
+import os
 import sys
 
-SINGSTAD_CODE = "/opt/ECG-age"
+# Authors' repositories: /opt on the reference server, ${MIVAL_HOME}/code in a
+# site bundle.
+CODE_ROOT = os.environ["MIVAL_HOME"] + "/code" if "MIVAL_HOME" in os.environ else "/opt"
+SINGSTAD_CODE = CODE_ROOT + "/ECG-age"
 
 
 def build(samples=1000, leads=12):

@@ -16,6 +16,14 @@ COHORT_INDEX = "cohort_index.parquet"
 SUMMARY = "retrieve_summary.json"
 SQL_DIR = "sql"
 SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_label.sql"
+#: retrieve.dbms. The label query uses a lateral join and date arithmetic, so it
+#: has one file per DBMS; the person and snapshot queries are plain SQL shared
+#: by both.
+DBMS = ("postgresql", "sqlserver")
+LABEL_SQL_FILES = {
+    "postgresql": SQL_FILE,
+    "sqlserver": Path(__file__).with_name("sql") / "retrieve_ecg_label.sqlserver.sql",
+}
 SNAPSHOT_SQL_FILE = Path(__file__).with_name("sql") / "label_snapshot.sql"
 PERSON_SQL_FILE = Path(__file__).with_name("sql") / "retrieve_ecg_person.sql"
 
@@ -60,6 +68,9 @@ REASON_CODES = frozenset({"label_missing", "label_implausible", "path_unresolvab
 
 Query = Callable[[str, Mapping[str, Any]], Any]
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+#: SQL Server names a schema in another database as ``database.schema`` and is
+#: case-insensitive, so one dot and upper case are allowed there.
+_SQLSERVER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 
 
 @dataclass(frozen=True)
@@ -70,8 +81,8 @@ class RetrieveSpec:
     modality_concept_id: int
     window_days: int
     window_days_sens2: int
-    implausible_below: float
-    local_path_root: str
+    implausible_below: Optional[float]  # None: no lower bound, nothing is excluded as implausible
+    local_path_root: Optional[str]
     require_local_file: bool
     primary_cutoff: float = 40.0   # label_primary = value <= primary_cutoff
     sens1_cutoff: float = 50.0     # label_sens1 = value < sens1_cutoff
@@ -80,6 +91,7 @@ class RetrieveSpec:
     measurements_path: Optional[str] = None
     per_person: str = "all"
     selection_rule: Optional[str] = None
+    dbms: str = "postgresql"
 
     @property
     def one_per_person(self) -> bool:
@@ -87,14 +99,18 @@ class RetrieveSpec:
 
     @classmethod
     def from_mapping(cls, body: Mapping[str, Any]) -> "RetrieveSpec":
-        for key in ("dsn_env", "local_path_root"):
-            if not body.get(key):
-                raise ValueError(f"retrieve.{key} is required")
+        if not body.get("dsn_env"):
+            raise ValueError("retrieve.dsn_env is required")
         if body.get("modality_concept_id") is None:
             raise ValueError("retrieve.modality_concept_id is required")
+        dbms = str(body.get("dbms", "postgresql"))
+        if dbms not in DBMS:
+            raise ValueError(f"retrieve.dbms {dbms!r} is not one of {list(DBMS)}")
         schema = str(body.get("schema", "cdm"))
-        if not _IDENTIFIER.match(schema):
+        pattern = _SQLSERVER_IDENTIFIER if dbms == "sqlserver" else _IDENTIFIER
+        if not pattern.match(schema):
             raise ValueError(f"retrieve.schema {schema!r} is not a plain identifier")
+        root = body.get("local_path_root")
         source = body.get("label_source") or {}
         kind = str(source.get("kind", "measurement"))
         if kind not in LABEL_KINDS:
@@ -109,13 +125,14 @@ class RetrieveSpec:
             per_person=per_person,
             selection_rule=rule,
             dsn_env=str(body["dsn_env"]),
+            dbms=dbms,
             schema=schema,
             label_concept_id=int(body.get("label_concept_id", 3027172)),
             modality_concept_id=int(body["modality_concept_id"]),
             window_days=int(body.get("window_days", 7)),
             window_days_sens2=int(body.get("window_days_sens2", 30)),
-            implausible_below=float(body.get("implausible_below", 5)),
-            local_path_root=str(body["local_path_root"]),
+            implausible_below=None if body.get("implausible_below", 5) is None else float(body.get("implausible_below", 5)),
+            local_path_root=None if root in (None, "") else str(root),
             require_local_file=bool(body.get("require_local_file", True)),
             primary_cutoff=float(body.get("primary_cutoff", 40)),
             sens1_cutoff=float(body.get("sens1_cutoff", 50)),
@@ -157,7 +174,7 @@ class RetrieveStage(Stage):
     reason_codes = REASON_CODES
 
     def __init__(self, query: Optional[Query] = None) -> None:
-        self._query = query  # injected in tests; None means PostgreSQL via dsn_env
+        self._query = query  # injected in tests; None means the spec's DBMS via dsn_env
 
     def config_inputs(self, spec: Mapping[str, Any]) -> dict:
         """The per-ECG label file of ``machine_measurement``, so its content is hashed."""
@@ -171,10 +188,10 @@ class RetrieveStage(Stage):
 
     def run(self, ctx: StageContext) -> StageResult:
         spec = RetrieveSpec.from_mapping(ctx.spec or {})
-        query = self._query or (lambda sql, params: query_postgres(sql, params, spec.dsn_env))
+        query = self._query or (lambda sql, params: QUERY_FUNCTIONS[spec.dbms](sql, params, spec.dsn_env))
         if spec.label_kind != "measurement":
             return self._run_derived(ctx, spec, query)
-        sql = SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
+        sql = LABEL_SQL_FILES[spec.dbms].read_text(encoding="utf-8").format(schema=spec.schema)
 
         snapshot_sql = SNAPSHOT_SQL_FILE.read_text(encoding="utf-8").format(schema=spec.schema)
         snapshot_params = {"label_concept_id": spec.label_concept_id}
@@ -324,7 +341,7 @@ def exclude_derived(frame, spec: RetrieveSpec, ledger):
     if spec.label_kind == "measurement_file":
         frame = drop(frame, frame["label_value"].isna(), "label_missing",
                      lambda r: f"no value within {spec.window_days} days in the label file")
-        frame = drop(frame, frame["label_value"] <= spec.implausible_below, "label_implausible",
+        frame = drop(frame, _implausible(frame, spec), "label_implausible",
                      lambda r: f"label_value={r.label_value}")
     elif spec.label_kind == "age_at_ecg":
         frame = drop(frame, frame["label_value"].isna(), "label_missing", lambda r: "no year_of_birth")
@@ -345,7 +362,7 @@ def exclude_derived(frame, spec: RetrieveSpec, ledger):
         frame = drop(frame, (frame[columns] < 0).any(axis=1), "label_implausible",
                      lambda r: "interval outside plausible bounds or a missing-value code")
     frame = drop(frame, frame["local_path"].isna(), "path_unresolvable",
-                 lambda r: "no 'files/' segment in the CDM local_path")
+                 lambda r: _unresolvable_detail(spec))
     if spec.require_local_file:
         frame = drop(frame, ~frame["local_path"].map(lambda p: Path(p).is_file()), "file_missing",
                      lambda r: r.local_path)
@@ -381,10 +398,35 @@ def one_per_person(frame, seed, ledger, rule="random"):
     return ordered[mask]
 
 
-def resolve_local_path(cdm_path: Any, root: str) -> Optional[str]:
-    """Re-root the part after 'files/' under this site's DICOM root (ledger A-1)."""
+def resolve_local_path(cdm_path: Any, root: Optional[str]) -> Optional[str]:
+    """The DICOM file of one ECG: the CDM local_path itself, or re-rooted under ``root``.
+
+    With no root the CDM path is used as it is, for a site whose CDM already
+    holds paths readable on this server. With a root, the part after 'files/'
+    is placed under it (ledger A-1), for a CDM built where the files lived
+    elsewhere.
+    """
+    if cdm_path is None or cdm_path != cdm_path or not str(cdm_path).strip():
+        return None
+    if root is None:
+        return str(cdm_path).strip()
     _, sep, tail = str(cdm_path).partition("/files/")
     return str(Path(root) / "files" / tail) if sep else None
+
+
+def _implausible(frame, spec: RetrieveSpec):
+    """Rows whose label is at or below ``implausible_below``; none when it is null."""
+    if spec.implausible_below is None:
+        import pandas
+
+        return pandas.Series(False, index=frame.index)
+    return frame["label_value"] <= spec.implausible_below
+
+
+def _unresolvable_detail(spec: RetrieveSpec) -> str:
+    if spec.local_path_root is None:
+        return "empty CDM local_path"
+    return "no 'files/' segment in the CDM local_path"
 
 
 def exclude(frame, spec: RetrieveSpec, ledger):
@@ -396,10 +438,10 @@ def exclude(frame, spec: RetrieveSpec, ledger):
 
     frame = drop(frame, frame["label_value"].isna(), "label_missing",
                  lambda r: f"no label within {spec.window_days} days")
-    frame = drop(frame, frame["label_value"] <= spec.implausible_below, "label_implausible",
+    frame = drop(frame, _implausible(frame, spec), "label_implausible",
                  lambda r: f"label_value={r.label_value}")
     frame = drop(frame, frame["local_path"].isna(), "path_unresolvable",
-                 lambda r: "no 'files/' segment in the CDM local_path")
+                 lambda r: _unresolvable_detail(spec))
     if spec.require_local_file:
         frame = drop(frame, ~frame["local_path"].map(lambda p: Path(p).is_file()), "file_missing",
                      lambda r: r.local_path)
@@ -481,32 +523,66 @@ def _decimals_to_float(frame):
     return frame
 
 
+#: Connection keys an env file may use. The PG* names are libpq's own; the DB_*
+#: names say the same for either DBMS. Values are host, port, database name,
+#: user and password whatever the driver later calls them.
+CONNECTION_KEYS = {
+    "PGHOST": "host", "PGPORT": "port", "PGDATABASE": "dbname", "PGUSER": "user", "PGPASSWORD": "password",
+    "DB_HOST": "host", "DB_PORT": "port", "DB_NAME": "dbname", "DB_USER": "user", "DB_PASSWORD": "password",
+}
+
+
 def read_connection_settings(dsn_env: str) -> dict:
     """The connection keywords held in an env file; the values are never logged."""
     # Kept out of os.environ: exporting them would leak the credentials into
     # every subprocess of this run, and into anything that dumps the
     # environment. Only the path of this file ever enters a hash.
-    keywords = {"PGHOST": "host", "PGPORT": "port", "PGDATABASE": "dbname",
-                "PGUSER": "user", "PGPASSWORD": "password"}
     settings = {}
     for line in Path(dsn_env).read_text(encoding="utf-8").splitlines():
         key, sep, value = line.partition("=")
         key = key.strip()
         if key.startswith("export "):
             key = key[len("export "):].strip()
-        if sep and key in keywords:
-            settings[keywords[key]] = value.strip().strip("'\"")
+        if sep and key in CONNECTION_KEYS:
+            settings[CONNECTION_KEYS[key]] = value.strip().strip("'\"")
     return settings
+
+
+def _frame(cursor):
+    import pandas
+
+    columns = [column[0] for column in cursor.description]
+    return _decimals_to_float(pandas.DataFrame(cursor.fetchall(), columns=columns))
 
 
 def query_postgres(sql: str, params: Mapping[str, Any], dsn_env: str):
     """Run one query with libpq settings read from an env file; nothing is logged."""
-    import pandas
     import psycopg
 
     settings = read_connection_settings(dsn_env)
     with psycopg.connect(**settings) as connection, connection.cursor() as cursor:
         cursor.execute(sql, params)
-        columns = [column.name for column in cursor.description]
-        frame = pandas.DataFrame(cursor.fetchall(), columns=columns)
-        return _decimals_to_float(frame)
+        return _frame(cursor)
+
+
+def query_sqlserver(sql: str, params: Mapping[str, Any], dsn_env: str):
+    """Run one query on SQL Server through pymssql (bundles FreeTDS, no ODBC driver needed)."""
+    import pymssql
+
+    settings = read_connection_settings(dsn_env)
+    keywords = {"server": settings.get("host", "localhost"), "database": settings.get("dbname"),
+                "user": settings.get("user"), "password": settings.get("password"),
+                # 7.3 is the first TDS version that returns DATE columns as dates, not strings.
+                "tds_version": "7.3"}
+    if settings.get("port"):
+        keywords["port"] = str(settings["port"])
+    connection = pymssql.connect(**{k: v for k, v in keywords.items() if v is not None})
+    try:
+        cursor = connection.cursor()
+        cursor.execute(sql, dict(params))
+        return _frame(cursor)
+    finally:
+        connection.close()
+
+
+QUERY_FUNCTIONS = {"postgresql": query_postgres, "sqlserver": query_sqlserver}

@@ -8,13 +8,17 @@ once by ``convert`` into a plain state_dict holding the module weights and
 the two statistic vectors as buffers.
 """
 
+import os
 import sys
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-SURVIVAL_CODE = "/opt/ecg-survival-benchmark/Modeling"
+# Authors' repositories: /opt on the reference server, ${MIVAL_HOME}/code in a
+# site bundle.
+CODE_ROOT = os.environ["MIVAL_HOME"] + "/code" if "MIVAL_HOME" in os.environ else "/opt"
+SURVIVAL_CODE = CODE_ROOT + "/ecg-survival-benchmark/Modeling"
 FILTERS = [64, 128, 196, 256, 320]
 SEQ_LENGTHS = [4096, 1024, 256, 64, 16]
 PAD = 648

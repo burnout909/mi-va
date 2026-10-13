@@ -22,6 +22,9 @@ figures = ["matplotlib>=3.4"]
 # The retrieve stage's default query path (mival.stages.retrieve.query_postgres)
 # needs this; the injected-query path used by tests and by other stages does not.
 db = ["psycopg[binary]>=3.1"]
+# retrieve.dbms: sqlserver. pymssql wheels bundle FreeTDS, so no system ODBC
+# driver is needed on an offline server.
+mssql = ["pymssql>=2.2"]
 # The real cohort's records are DICOM (12-lead ECG Waveform Storage);
 # mival.stages.preprocess.load_dicom_record imports pydicom inside the
 # function, same rule as `tables` and `metrics`.
